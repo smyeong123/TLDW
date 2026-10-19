@@ -109,11 +109,11 @@ plans.md
 ### Phase 2 — Transcript + script
 - [x] `transcript.py` with the three-tier fallback; store transcript to `cache/<id>.json`
       _(two tiers; Whisper tier dropped per the captions-only decision)_
-- [ ] `script.py`: Claude call that returns strict JSON matching `Script` schema
+- [x] `script.py`: Claude call that returns strict JSON matching `Script` schema
       (`context`, `points[{claim, detail, timestamp_s}]`, `takeaway`, `title`, `language`)
-- [ ] Validate: 3–5 points, each timestamp within video duration, total word count
+- [x] Validate: 3–5 points, each timestamp within video duration, total word count
       fits 60–150 s at ~150 wpm; retry once with feedback if invalid
-- [ ] Unit tests with a fixture transcript
+- [x] Unit tests with a fixture transcript
 - Done when: `tldw run --until scripted` produces readable JSON scripts.
 
 ### Phase 3 — Render

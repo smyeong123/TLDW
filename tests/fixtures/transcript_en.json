@@ -1,0 +1,68 @@
+{
+ "video_id": "aaaaaaaaaaa",
+ "language": "en",
+ "is_generated": true,
+ "source": "transcript-api",
+ "segments": [
+  {
+   "start": 0.0,
+   "duration": 6.0,
+   "text": "Today we're looking at how CPU caches work and why they matter for performance."
+  },
+  {
+   "start": 50.0,
+   "duration": 6.0,
+   "text": "Main memory is slow compared to the processor, around a hundred nanoseconds per access."
+  },
+  {
+   "start": 100.0,
+   "duration": 6.0,
+   "text": "So CPUs keep small, fast copies of recently used data close to the cores."
+  },
+  {
+   "start": 150.0,
+   "duration": 6.0,
+   "text": "There are usually three levels: L1, L2 and L3, each bigger and slower."
+  },
+  {
+   "start": 200.0,
+   "duration": 6.0,
+   "text": "Data moves in cache lines of 64 bytes, not single bytes."
+  },
+  {
+   "start": 250.0,
+   "duration": 6.0,
+   "text": "That means reading one value pulls its neighbours in for free."
+  },
+  {
+   "start": 300.0,
+   "duration": 6.0,
+   "text": "This is why iterating an array in order is much faster than chasing pointers."
+  },
+  {
+   "start": 350.0,
+   "duration": 6.0,
+   "text": "Linked lists scatter nodes across memory, so every step can be a cache miss."
+  },
+  {
+   "start": 400.0,
+   "duration": 6.0,
+   "text": "When two cores write to the same cache line you get false sharing."
+  },
+  {
+   "start": 450.0,
+   "duration": 6.0,
+   "text": "Padding hot fields onto separate lines can fix that."
+  },
+  {
+   "start": 500.0,
+   "duration": 6.0,
+   "text": "Prefetchers guess what you'll read next, but only for simple patterns."
+  },
+  {
+   "start": 550.0,
+   "duration": 6.0,
+   "text": "To sum up, keep hot data small, contiguous, and owned by one core."
+  }
+ ]
+}
