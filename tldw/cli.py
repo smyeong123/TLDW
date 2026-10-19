@@ -1,7 +1,9 @@
-"""Typer CLI: auth, list (Phase 0); run, retry, migrate-wl are added in later phases."""
+"""Typer CLI: auth, list, import, serve; run, retry, migrate-wl are added in later phases."""
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 from typing import Annotated
 
@@ -9,8 +11,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from tldw import youtube
+from tldw import intake, youtube
 from tldw.config import AppConfig, load_config
+from tldw.serve import make_server
 from tldw.state import State
 
 app = typer.Typer(
@@ -113,6 +116,48 @@ def list_cmd(config: ConfigOpt = Path("config.yaml")) -> None:
             )
     console.print(table)
     console.print(f"[dim]API quota used this call: {youtube.quota.used} units[/dim]")
+
+
+@app.command("import")
+def import_cmd(
+    snapshot: Annotated[Path, typer.Argument(help="JSON file exported by the TLDW extension")],
+    config: ConfigOpt = Path("config.yaml"),
+) -> None:
+    """Load a Watch Later snapshot file (the extension's 'Download JSON' button)."""
+    cfg = _load(config)
+    try:
+        data = json.loads(snapshot.read_text(encoding="utf-8"))
+        with State(cfg.state_db) as state:
+            result = intake.ingest_snapshot(state, data)
+    except (OSError, json.JSONDecodeError, intake.SnapshotError) as e:
+        err_console.print(f"[red]import failed:[/red] {e}")
+        raise typer.Exit(2) from e
+    console.print(f"Imported {result.total} videos ({result.new} new, {result.updated} updated)")
+
+
+@app.command()
+def serve(
+    config: ConfigOpt = Path("config.yaml"),
+    port: Annotated[int | None, typer.Option(help="Override serve_port")] = None,
+) -> None:
+    """Receive Watch Later snapshots from the browser extension (127.0.0.1 only)."""
+    cfg = _load(config)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    try:
+        srv = make_server(
+            cfg.state_db, cfg.secrets.tldw_extension_token or "", port or cfg.config.serve_port
+        )
+    except (ValueError, OSError) as e:
+        err_console.print(f"[red]serve error:[/red] {e}")
+        raise typer.Exit(2) from e
+    host, bound = srv.server_address[:2]
+    console.print(f"Listening on http://{host}:{bound} — Ctrl+C to stop")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        srv.server_close()
 
 
 if __name__ == "__main__":

@@ -81,3 +81,44 @@ def test_list_unauthenticated_exits_3(tmp_path, monkeypatch):
     result = runner.invoke(cli.app, ["list", "--config", str(cfg)])
     assert result.exit_code == 3
     assert "tldw auth" in result.output
+
+
+def test_import_snapshot(tmp_path):
+    import json
+
+    cfg = _write_config(tmp_path)
+    snap = tmp_path / "wl.json"
+    item = {"video_id": "aaaaaaaaaaa", "title": "A", "watched_pct": 0.3}
+    snap.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "source": "watch_later",
+                "taken_at": "2026-10-20T01:00:00Z",
+                "items": [item],
+            }
+        )
+    )
+    result = runner.invoke(cli.app, ["import", str(snap), "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    assert "1 new" in result.output
+    with State(tmp_path / "state.db") as s:
+        assert s.get("aaaaaaaaaaa").watched_pct == 0.3
+
+
+def test_import_bad_file_exits_2(tmp_path):
+    cfg = _write_config(tmp_path)
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")
+    result = runner.invoke(cli.app, ["import", str(bad), "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "import failed" in result.output
+
+
+def test_serve_without_token_exits_2(tmp_path, monkeypatch):
+    cfg = _write_config(tmp_path)
+    monkeypatch.delenv("TLDW_EXTENSION_TOKEN", raising=False)
+    monkeypatch.chdir(tmp_path)  # no .env here
+    result = runner.invoke(cli.app, ["serve", "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "TLDW_EXTENSION_TOKEN" in result.output

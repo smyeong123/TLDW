@@ -86,14 +86,14 @@ plans.md
 - Done when: `tldw list` prints the TLDW playlist contents.  _(verified against a mocked API; real run pending user credentials)_
 
 ### Phase 1 — Intake + topic filter
-- [ ] Fetch playlist items with snippet + contentDetails; store new ones as `new`
+- [x] Fetch playlist items with snippet + contentDetails; store new ones as `new` _(`intake.from_playlist`, `source: playlist`)_
 - [ ] `classify.py`: prompt with title, description, tags, chapters, channel →
       returns `{topic | null, confidence}` against `config.topics`
 - [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
       remove from playlist (user may want to watch it normally)
 - [ ] Skip videos > `max_source_minutes` (default 120) with a logged reason
 - [ ] Make `topics` optional: an empty list skips classification and keeps every video
-- [ ] Snapshot ingest (Python): `tldw import <file.json>` and `tldw serve`
+- [x] Snapshot ingest (Python): `tldw import <file.json>` and `tldw serve`
       (127.0.0.1, `TLDW_EXTENSION_TOKEN` header) both call one `ingest_snapshot()` that
       upserts `{video_id, title, channel, duration_s, watched_pct}` and records `snapshot_at`
 - [ ] Skip videos watched ≥ `watched_threshold` (default 0.5) → new stage `watched`
