@@ -92,7 +92,7 @@ plans.md
 - [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
       remove from playlist (user may want to watch it normally)
 - [ ] Skip videos > `max_source_minutes` (default 120) with a logged reason
-- [ ] Make `topics` optional: an empty list skips classification and keeps every video
+- [x] Make `topics` optional: an empty list skips classification and keeps every video
 - [x] Snapshot ingest (Python): `tldw import <file.json>` and `tldw serve`
       (127.0.0.1, `TLDW_EXTENSION_TOKEN` header) both call one `ingest_snapshot()` that
       upserts `{video_id, title, channel, duration_s, watched_pct}` and records `snapshot_at`

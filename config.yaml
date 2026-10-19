@@ -11,7 +11,9 @@ playlist_name: TLDW
 # Playlist on your own channel where finished shorts are added (created if missing).
 output_playlist_name: TLDW Shorts
 
-# Topics the classifier may assign. Anything else is filtered out (but left in the playlist).
+# Optional topic filter. Empty list ([]) = summarize every unwatched video.
+# Otherwise only videos the classifier puts in one of these are summarized; the rest
+# are filtered out (but left in Watch Later / the playlist).
 topics:
   - ML / AI
   - Systems design
@@ -20,6 +22,9 @@ topics:
 
 # "match" = same language as the source video; or a language code like "ko" / "en".
 output_language: match
+
+# Claude model for topic classification and scripts.
+llm_model: claude-opus-5-5
 
 # Classifier confidence below this -> filtered_out
 confidence_threshold: 0.6
