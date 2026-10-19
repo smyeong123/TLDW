@@ -1,7 +1,8 @@
 """SQLite stage tracking so `tldw run` is idempotent across reruns.
 
-Stages: new -> filtered_in | filtered_out -> transcribed -> scripted -> rendered
-        -> delivered -> removed; any stage may go to failed.
+Stages: new -> filtered_in | filtered_out | watched -> transcribed -> scripted -> rendered
+        -> delivered -> removed; any stage may go to failed. `watched` = the user already
+        watched >= watched_threshold of it, so it is never summarized.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ class Stage(StrEnum):
     NEW = "new"
     FILTERED_IN = "filtered_in"
     FILTERED_OUT = "filtered_out"
+    WATCHED = "watched"
     TRANSCRIBED = "transcribed"
     SCRIPTED = "scripted"
     RENDERED = "rendered"
@@ -27,9 +29,10 @@ class Stage(StrEnum):
 
 # Legal forward transitions. FAILED is reachable from anywhere; retry resets explicitly.
 _NEXT: dict[Stage, set[Stage]] = {
-    Stage.NEW: {Stage.FILTERED_IN, Stage.FILTERED_OUT},
-    Stage.FILTERED_IN: {Stage.TRANSCRIBED},
+    Stage.NEW: {Stage.FILTERED_IN, Stage.FILTERED_OUT, Stage.WATCHED},
+    Stage.FILTERED_IN: {Stage.TRANSCRIBED, Stage.WATCHED},
     Stage.FILTERED_OUT: set(),
+    Stage.WATCHED: set(),
     Stage.TRANSCRIBED: {Stage.SCRIPTED},
     Stage.SCRIPTED: {Stage.RENDERED},
     Stage.RENDERED: {Stage.DELIVERED},
