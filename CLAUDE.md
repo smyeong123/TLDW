@@ -6,7 +6,8 @@ output spec, phase checklist, working rules, and a running Findings log.
 ## Where we are
 - Phases 0–1 done: intake (extension snapshot or API playlist), watched-% / length / optional
   topic filter, `tldw run --dry-run`, `tldw serve`/`import`, Chrome extension in `extension/`.
-  Next: Phase 2 (transcript + script).
+  Phase 2 done (captions + Claude script, `tldw run --until scripted`). Next: Phase 3
+  (sample slide for the user's style approval first).
 - The user's answers to the open questions are recorded in `plans.md` and `config.yaml`:
   topics = ML / AI, Systems design, Finance, Korean history; output language = match
   source; delivery = YouTube private playlist + Telegram; captions only (no Whisper).

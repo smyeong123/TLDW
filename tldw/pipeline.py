@@ -1,16 +1,23 @@
-"""Glue for `tldw run`: intake -> filter (-> later phases). Kept out of cli.py so it is testable."""
+"""Glue for `tldw run`: intake -> filter -> transcript -> script (-> later phases).
+
+Kept out of cli.py so it is testable.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 import anthropic
 from googleapiclient.discovery import Resource
 
+from tldw import script as sc
+from tldw import transcript as tr
 from tldw import youtube
 from tldw.classify import ClaudeClassifier, VideoInfo
 from tldw.config import AppConfig, Config
-from tldw.state import State
+from tldw.state import Stage, State
 
 
 def snapshot_age_warning(state: State, cfg: Config, now: datetime | None = None) -> str | None:
@@ -61,3 +68,73 @@ def make_classifier(cfg: AppConfig) -> ClaudeClassifier | None:
     return ClaudeClassifier(
         anthropic.Anthropic(api_key=key), cfg.config.llm_model, cfg.config.topics
     )
+
+
+def anthropic_client(cfg: AppConfig) -> anthropic.Anthropic:
+    key = cfg.secrets.anthropic_api_key
+    if not key:
+        raise ValueError("ANTHROPIC_API_KEY is missing from .env (needed for scripts)")
+    return anthropic.Anthropic(api_key=key)
+
+
+@dataclass(frozen=True)
+class StepResult:
+    video_id: str
+    title: str
+    step: str
+    ok: bool
+    message: str
+
+
+def transcribe_step(
+    state: State,
+    cfg: AppConfig,
+    *,
+    limit: int,
+    fetch: Callable[..., tr.Transcript] = tr.get_transcript,
+) -> list[StepResult]:
+    """filtered_in -> transcribed (captions cached in cache_dir); failures -> failed."""
+    results = []
+    for rec in state.list(Stage.FILTERED_IN)[:limit]:
+        try:
+            t = fetch(rec.id, cfg.cache_dir)
+        except tr.NoCaptions as e:
+            state.fail(rec.id, str(e))
+            results.append(StepResult(rec.id, rec.title, "transcript", False, str(e)))
+            continue
+        state.set_stage(rec.id, Stage.TRANSCRIBED)
+        msg = f"{len(t.segments)} segments, {t.language}, {t.source}"
+        results.append(StepResult(rec.id, rec.title, "transcript", True, msg))
+    return results
+
+
+def script_step(
+    state: State,
+    cfg: AppConfig,
+    client: anthropic.Anthropic,
+    *,
+    limit: int,
+) -> list[StepResult]:
+    """transcribed -> scripted (cache_dir/<id>.script.json); failures -> failed."""
+    results = []
+    for rec in state.list(Stage.TRANSCRIBED)[:limit]:
+        path = tr.cache_path(cfg.cache_dir, rec.id)
+        meta = sc.VideoMeta(rec.id, rec.title, rec.channel, rec.duration_s)
+        try:
+            t = tr.Transcript.from_json(path.read_text(encoding="utf-8"))
+            script = sc.write_script(
+                client,
+                cfg.config.llm_model,
+                meta,
+                t,
+                output_language=cfg.config.output_language,
+            )
+        except (OSError, sc.ScriptError, anthropic.APIError) as e:
+            state.fail(rec.id, f"script: {e}")
+            results.append(StepResult(rec.id, rec.title, "script", False, str(e)))
+            continue
+        sc.save(script, sc.script_path(cfg.cache_dir, rec.id))
+        state.set_stage(rec.id, Stage.SCRIPTED)
+        msg = f"{len(script.points)} points, {script.language}: {script.title}"
+        results.append(StepResult(rec.id, rec.title, "script", True, msg))
+    return results

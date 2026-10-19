@@ -154,7 +154,7 @@ def test_run_applies_decisions(tmp_path, monkeypatch):
     monkeypatch.setattr("tldw.pipeline.optional_service", lambda cfg: None)
     cfg = _write_wl_config(tmp_path)
     _seed_snapshot(tmp_path, [("aaaaaaaaaaa", 0.9), ("bbbbbbbbbbb", None)])
-    result = runner.invoke(cli.app, ["run", "--config", str(cfg)])
+    result = runner.invoke(cli.app, ["run", "--until", "filtered", "--config", str(cfg)])
     assert result.exit_code == 0, result.output
     with State(tmp_path / "state.db") as s:
         assert s.get("aaaaaaaaaaa").stage == Stage.WATCHED
