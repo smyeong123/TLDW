@@ -15,9 +15,11 @@ render 9:16 video → deliver → remove from playlist.**
 
 ## Hard constraints (do not try to work around these)
 - The YouTube Data API returns an empty list for the Watch Later (`WL`) playlist and
-  cannot delete from it. Therefore the pipeline reads from a **user-created playlist**
-  (default name: `TLDW`), not Watch Later. The user will save new videos there.
-  One-time backlog migration from Watch Later is manual (YouTube UI or Google Takeout).
+  cannot delete from it. It also has no watch-progress data. Therefore Watch Later (with
+  each video's watched %) is read by the **TLDW browser extension** from the youtube.com
+  page you are already signed in to, and sent to the local CLI (decided 2026-10-20, see
+  Findings). The extension only reads pages you open; it never fetches with copied cookies.
+  A user-created playlist read through the API (`source: playlist`) stays as an alternative.
 - Do **not** download video/audio streams of other people's videos. Use captions/
   transcripts only. Shorts are generated from our own script, TTS, and slides.
 - YouTube Data API default quota is 10,000 units/day; `videos.insert` costs ~1,600
@@ -29,7 +31,9 @@ render 9:16 video → deliver → remove from playlist.**
 | Concern | Choice |
 |---|---|
 | Language | Python 3.11+, `uv` for env/deps |
-| Intake | YouTube Data API v3 (OAuth, scopes: `youtube` + `youtube.upload`) |
+| Intake | Default `source: watch_later`: a Chrome MV3 extension (`extension/`) reads Watch Later + watched % on youtube.com and POSTs a snapshot to `tldw serve` (127.0.0.1 only, shared token), or exports a JSON file for `tldw import`. Alternative `source: playlist`: YouTube Data API v3 (OAuth, scopes: `youtube` + `youtube.upload`, also used for upload) |
+| Watched skip | `watched_pct ≥ watched_threshold` (default 0.5) → stage `watched`, never summarized |
+| Topic filter | Optional. Empty `topics` = summarize everything; otherwise classify and filter |
 | Transcript | `youtube-transcript-api` → fallback `yt-dlp --write-auto-sub --skip-download` → fallback `faster-whisper` on audio only if the user explicitly enables it |
 | LLM | Anthropic API (Claude). One call for topic classification, one for the script |
 | TTS | `edge-tts` (free, has Korean + English voices). Abstract behind an interface so ElevenLabs/OpenAI can be swapped in |
@@ -88,10 +92,19 @@ plans.md
 - [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
       remove from playlist (user may want to watch it normally)
 - [ ] Skip videos > `max_source_minutes` (default 120) with a logged reason
-- [ ] Skip videos watched ≥ `watched_threshold` (default 0.5) as `watched`, and leave
-      them in the playlist. **Blocked:** we still need a source for watch progress
-      (see Findings 2026-10-20 and the open question below)
-- Done when: `tldw run --dry-run` shows which videos would be processed and why.
+- [ ] Make `topics` optional: an empty list skips classification and keeps every video
+- [ ] Snapshot ingest (Python): `tldw import <file.json>` and `tldw serve`
+      (127.0.0.1, `TLDW_EXTENSION_TOKEN` header) both call one `ingest_snapshot()` that
+      upserts `{video_id, title, channel, duration_s, watched_pct}` and records `snapshot_at`
+- [ ] Skip videos watched ≥ `watched_threshold` (default 0.5) → new stage `watched`
+      (reachable from `new`/`filtered_in`, re-checked on every snapshot)
+- [ ] `extension/`: MV3 content script on `youtube.com/playlist?list=WL` scrolls the list
+      to load every item, reads id/title/channel/length/progress-bar %, then a popup
+      button sends it to `tldw serve` (or downloads the JSON when serve isn't running)
+- [ ] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
+      is older than `snapshot_max_age_hours` (default 48)
+- Done when: `tldw run --dry-run` shows which videos would be processed and why
+  (watched / too long / off-topic / ok).
 
 ### Phase 2 — Transcript + script
 - [ ] `transcript.py` with the three-tier fallback; store transcript to `cache/<id>.json`
@@ -118,6 +131,7 @@ plans.md
       and stop gracefully on quota errors
 - [ ] `deliver/telegram.py`: send video with caption = title + takeaway + source URL
 - [ ] On successful delivery: `playlistItems.delete` the source from `TLDW` → `removed`
+      (`source: playlist` only; for Watch Later see "Open questions (later)")
 - [ ] Failures go to `failed` with error text; `tldw retry` reprocesses them
 - Done when: a short appears in my YouTube `TLDW Shorts` playlist and the source is gone from `TLDW`.
 
@@ -139,6 +153,13 @@ plans.md
 2. Output language: **match the source** (`output_language: match`)
 3. Delivery: **both** YouTube private playlist and Telegram
 4. **Captions only.** No Whisper fallback (`whisper_fallback: false`; the code path stays disabled)
+5. (2026-10-20) Watch progress comes from a **browser extension**; the topic filter is
+   **optional** (empty `topics` = everything)
+
+## Open questions (later, not blocking)
+- Removing delivered videos from Watch Later: the API can't do it. Proposed: in Phase 4
+  the extension shows a "Remove N summarized videos" button that clicks YouTube's own
+  menu. The user starts each removal; it never runs on its own. Confirm before building.
 
 ## Findings
 - **2026-10-19 (Phase 0)** OAuth for a Desktop-app client needs a browser and a localhost
@@ -161,7 +182,8 @@ plans.md
   video, not only educational ones; the topic filter stays as a user setting.
 - **2026-10-20 (watch-progress requirement)** The YouTube Data API v3 has **no watch-progress
   or watch-history data**. The `HL` history playlist has returned nothing since 2016, and no
-  endpoint gives a resume position. Possible sources, none chosen yet (**ask the user**):
+  endpoint gives a resume position. **Decision (user, 2026-10-20): option 1 via a browser
+  extension** that reads the page the user opens; no cookie-based fetching. Options considered:
   1. *YouTube web page data*: the Watch Later page (`/playlist?list=WL`) includes
      `percentDurationWatched` for each video in its embedded page data. This could be read
      by a small browser extension or userscript, or by fetching the page with the
