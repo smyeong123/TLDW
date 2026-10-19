@@ -4,7 +4,7 @@ Read `plans.md` first. It is the source of truth: goals, hard constraints, decis
 output spec, phase checklist, working rules, and a running Findings log.
 
 ## Where we are
-- Phase 0 done (scaffold, config, OAuth, state). Next: Phase 1 (intake + topic filter). Watch-progress skip is blocked on a data-source decision (plans.md Findings 2026-10-20).
+- Phase 0 done (scaffold, config, OAuth, state). Next: Phase 1 (Watch Later snapshot via browser extension + watched-% skip + optional topic filter; see plans.md).
 - The user's answers to the open questions are recorded in `plans.md` and `config.yaml`:
   topics = ML / AI, Systems design, Finance, Korean history; output language = match
   source; delivery = YouTube private playlist + Telegram; captions only (no Whisper).
