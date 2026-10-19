@@ -101,7 +101,7 @@ plans.md
 - [ ] `extension/`: MV3 content script on `youtube.com/playlist?list=WL` scrolls the list
       to load every item, reads id/title/channel/length/progress-bar %, then a popup
       button sends it to `tldw serve` (or downloads the JSON when serve isn't running)
-- [ ] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
+- [x] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
       is older than `snapshot_max_age_hours` (default 48)
 - Done when: `tldw run --dry-run` shows which videos would be processed and why
   (watched / too long / off-topic / ok).
