@@ -1,0 +1,45 @@
+# TLDW configuration. Secrets live in .env, never here.
+
+# User-created playlist the pipeline reads from (NOT Watch Later - the API can't read WL).
+playlist_name: TLDW
+
+# Playlist on your own channel where finished shorts are added (created if missing).
+output_playlist_name: TLDW Shorts
+
+# Topics the classifier may assign. Anything else is filtered out (but left in the playlist).
+topics:
+  - ML / AI
+  - Systems design
+  - Finance
+  - Korean history
+
+# "match" = same language as the source video; or a language code like "ko" / "en".
+output_language: match
+
+# Classifier confidence below this -> filtered_out
+confidence_threshold: 0.6
+
+# Skip sources longer than this (minutes), with a logged reason.
+max_source_minutes: 120
+
+# Upload quota is ~6/day; keep this small. Telegram delivery has no such cap.
+max_shorts_per_run: 5
+
+# Any of: youtube, telegram
+delivery:
+  - youtube
+  - telegram
+
+# edge-tts voice per output language. Add more keys as needed.
+tts_voice:
+  ko: ko-KR-SunHiNeural
+  en: en-US-AriaNeural
+
+# Only used if captions are missing AND you explicitly opt in. Default off: captions only.
+whisper_fallback: false
+
+# Paths (relative to the repo root unless absolute)
+state_db: state.db
+cache_dir: cache
+out_dir: out
+logs_dir: logs

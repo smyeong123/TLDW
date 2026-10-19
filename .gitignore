@@ -1,0 +1,23 @@
+# secrets / credentials — never commit
+.env
+client_secret*.json
+token.json
+*.pickle
+secrets/
+
+# runtime data
+state.db
+state.db-*
+cache/
+out/
+logs/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
