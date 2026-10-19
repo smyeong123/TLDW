@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
 
@@ -16,7 +17,7 @@ from tldw import filter as flt
 from tldw import intake, pipeline, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
-from tldw.state import State
+from tldw.state import Stage, State
 
 app = typer.Typer(
     help="TLDW: turn the videos you saved but never watched into short summaries.",
@@ -120,6 +121,12 @@ def list_cmd(config: ConfigOpt = Path("config.yaml")) -> None:
     console.print(f"[dim]API quota used this call: {youtube.quota.used} units[/dim]")
 
 
+class Until(StrEnum):
+    filtered = "filtered"
+    transcribed = "transcribed"
+    scripted = "scripted"
+
+
 _VERDICT_STYLE = {
     "process": "green",
     "watched": "dim",
@@ -133,11 +140,18 @@ _VERDICT_STYLE = {
 def run(
     config: ConfigOpt = Path("config.yaml"),
     dry_run: Annotated[
-        bool, typer.Option("--dry-run", help="Show decisions without changing any stage")
+        bool, typer.Option("--dry-run", help="Show filter decisions without changing anything")
     ] = False,
+    until: Annotated[
+        Until, typer.Option(help="Stop after this stage (default: as far as built)")
+    ] = Until.scripted,
+    limit: Annotated[
+        int | None, typer.Option(help="Max videos per step (default: max_shorts_per_run)")
+    ] = None,
 ) -> None:
-    """Intake + filter: decide which saved videos get a summary, and why."""
+    """Intake -> filter -> transcript -> script. Each step picks up where the last run left off."""
     cfg = _load(config)
+    limit = limit or cfg.config.max_shorts_per_run
     with State(cfg.state_db) as state:
         if cfg.config.source == "playlist":
             yt = _service(cfg)
@@ -163,7 +177,23 @@ def run(
         if classifier is not None:
             infos = pipeline.video_infos(yt, [r.id for r in flt.pending(state, cfg.config)])
         decisions = flt.run_filter(state, cfg.config, classifier, infos=infos, dry_run=dry_run)
+        _print_decisions(decisions, dry_run)
+        if dry_run or until == Until.filtered:
+            return
 
+        steps = pipeline.transcribe_step(state, cfg, limit=limit)
+        if until != Until.transcribed and state.list(Stage.TRANSCRIBED):
+            try:
+                client = pipeline.anthropic_client(cfg)
+            except ValueError as e:
+                _print_steps(steps)
+                err_console.print(f"[red]config error:[/red] {e}")
+                raise typer.Exit(2) from e
+            steps += pipeline.script_step(state, cfg, client, limit=limit)
+        _print_steps(steps)
+
+
+def _print_decisions(decisions: list[flt.Decision], dry_run: bool) -> None:
     title = "Dry run: nothing changed" if dry_run else "Filter decisions"
     table = Table(title=f"{title} ({len(decisions)} videos)")
     table.add_column("video id", style="cyan", no_wrap=True)
@@ -176,6 +206,20 @@ def run(
     console.print(table)
     counts = Counter(d.verdict for d in decisions)
     console.print(", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "nothing pending")
+
+
+def _print_steps(steps: list[pipeline.StepResult]) -> None:
+    if not steps:
+        return
+    table = Table(title=f"Pipeline steps ({len(steps)})")
+    table.add_column("video id", style="cyan", no_wrap=True)
+    table.add_column("title", max_width=40)
+    table.add_column("step")
+    table.add_column("result", max_width=70)
+    for r in steps:
+        mark = "[green]ok[/green]" if r.ok else "[red]failed[/red]"
+        table.add_row(r.video_id, r.title, r.step, f"{mark} {r.message}")
+    console.print(table)
 
 
 @app.command("import")
