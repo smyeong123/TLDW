@@ -86,7 +86,7 @@ plans.md
 - Done when: `tldw list` prints the TLDW playlist contents.  _(verified against a mocked API; real run pending user credentials)_
 
 ### Phase 1 — Intake + topic filter
-- [ ] Fetch playlist items with snippet + contentDetails; store new ones as `new`
+- [x] Fetch playlist items with snippet + contentDetails; store new ones as `new` _(`intake.from_playlist`, `source: playlist`)_
 - [ ] `classify.py`: prompt with title, description, tags, chapters, channel →
       returns `{topic | null, confidence}` against `config.topics`
 - [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**

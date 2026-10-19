@@ -1,6 +1,11 @@
 # TLDW configuration. Secrets live in .env, never here.
 
-# User-created playlist the pipeline reads from (NOT Watch Later - the API can't read WL).
+# Where videos come from:
+#   watch_later - Watch Later snapshots sent by the TLDW browser extension (extension/)
+#   playlist    - playlist_name below, read through the YouTube API
+source: watch_later
+
+# Only used with source: playlist (the API can't read Watch Later).
 playlist_name: TLDW
 
 # Playlist on your own channel where finished shorts are added (created if missing).
@@ -21,6 +26,15 @@ confidence_threshold: 0.6
 
 # Skip sources longer than this (minutes), with a logged reason.
 max_source_minutes: 120
+
+# Watched at least this fraction (0..1) -> treated as watched, never summarized.
+watched_threshold: 0.5
+
+# `tldw run` warns when the newest Watch Later snapshot is older than this.
+snapshot_max_age_hours: 48
+
+# Port for `tldw serve` (listens on 127.0.0.1 only) that the extension posts to.
+serve_port: 8765
 
 # Upload quota is ~6/day; keep this small. Telegram delivery has no such cap.
 max_shorts_per_run: 5

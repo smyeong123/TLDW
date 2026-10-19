@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Delivery = Literal["youtube", "telegram"]
+Source = Literal["watch_later", "playlist"]
 
 
 class Secrets(BaseSettings):
@@ -22,17 +23,24 @@ class Secrets(BaseSettings):
     telegram_chat_id: str | None = None
     google_client_secret_file: Path = Path("client_secret.json")
     google_token_file: Path = Path("token.json")
+    # Shared secret the browser extension sends to `tldw serve` (X-TLDW-Token header).
+    tldw_extension_token: str | None = None
 
 
 class Config(BaseModel):
     """Contents of config.yaml."""
 
+    # watch_later: snapshots from the browser extension; playlist: playlist_name via the API.
+    source: Source = "watch_later"
     playlist_name: str = "TLDW"
     output_playlist_name: str = "TLDW Shorts"
     topics: list[str] = Field(min_length=1)
     output_language: str = "match"
     confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     max_source_minutes: int = Field(default=120, gt=0)
+    watched_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    snapshot_max_age_hours: int = Field(default=48, gt=0)
+    serve_port: int = Field(default=8765, gt=0, lt=65536)
     max_shorts_per_run: int = Field(default=5, gt=0)
     delivery: list[Delivery] = Field(default_factory=lambda: ["youtube"])
     tts_voice: dict[str, str] = Field(default_factory=lambda: {"en": "en-US-AriaNeural"})
