@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px system-ui, sans-serif; width: 280px; margin: 12px; }
+      button { width: 100%; padding: 8px; margin-top: 6px; cursor: pointer; }
+      #status { margin-top: 10px; white-space: pre-wrap; }
+      .err { color: #b00020; }
+      .ok { color: #1b5e20; }
+      a { font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <strong>TLDW</strong>
+    <button id="send">Send Watch Later to TLDW</button>
+    <button id="download" hidden>Download JSON instead</button>
+    <div id="status"></div>
+    <p><a href="#" id="options">Settings (token, port)</a></p>
+    <script src="popup.js"></script>
+  </body>
+</html>

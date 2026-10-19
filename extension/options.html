@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font: 13px system-ui, sans-serif; margin: 12px; min-width: 320px; }
+      label { display: block; margin-top: 8px; }
+      input { width: 100%; padding: 4px; box-sizing: border-box; }
+      button { margin-top: 10px; }
+    </style>
+  </head>
+  <body>
+    <label>Token (same as <code>TLDW_EXTENSION_TOKEN</code> in .env)
+      <input id="token" type="password" autocomplete="off" />
+    </label>
+    <label>Port (same as <code>serve_port</code> in config.yaml)
+      <input id="port" type="number" min="1" max="65535" />
+    </label>
+    <button id="save">Save</button>
+    <span id="msg"></span>
+    <script src="options.js"></script>
+  </body>
+</html>
