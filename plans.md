@@ -87,7 +87,7 @@ plans.md
 
 ### Phase 1 — Intake + topic filter
 - [x] Fetch playlist items with snippet + contentDetails; store new ones as `new` _(`intake.from_playlist`, `source: playlist`)_
-- [ ] `classify.py`: prompt with title, description, tags, chapters, channel →
+- [x] `classify.py`: prompt with title, description, tags, chapters, channel →
       returns `{topic | null, confidence}` against `config.topics`
 - [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
       remove from playlist (user may want to watch it normally)
