@@ -87,21 +87,21 @@ plans.md
 
 ### Phase 1 — Intake + topic filter
 - [x] Fetch playlist items with snippet + contentDetails; store new ones as `new` _(`intake.from_playlist`, `source: playlist`)_
-- [ ] `classify.py`: prompt with title, description, tags, chapters, channel →
+- [x] `classify.py`: prompt with title, description, tags, chapters, channel →
       returns `{topic | null, confidence}` against `config.topics`
-- [ ] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
+- [x] Below `confidence_threshold` (default 0.6) → `filtered_out`, but **do not**
       remove from playlist (user may want to watch it normally)
-- [ ] Skip videos > `max_source_minutes` (default 120) with a logged reason
-- [ ] Make `topics` optional: an empty list skips classification and keeps every video
+- [x] Skip videos > `max_source_minutes` (default 120) with a logged reason
+- [x] Make `topics` optional: an empty list skips classification and keeps every video
 - [x] Snapshot ingest (Python): `tldw import <file.json>` and `tldw serve`
       (127.0.0.1, `TLDW_EXTENSION_TOKEN` header) both call one `ingest_snapshot()` that
       upserts `{video_id, title, channel, duration_s, watched_pct}` and records `snapshot_at`
-- [ ] Skip videos watched ≥ `watched_threshold` (default 0.5) → new stage `watched`
+- [x] Skip videos watched ≥ `watched_threshold` (default 0.5) → new stage `watched`
       (reachable from `new`/`filtered_in`, re-checked on every snapshot)
 - [ ] `extension/`: MV3 content script on `youtube.com/playlist?list=WL` scrolls the list
       to load every item, reads id/title/channel/length/progress-bar %, then a popup
       button sends it to `tldw serve` (or downloads the JSON when serve isn't running)
-- [ ] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
+- [x] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
       is older than `snapshot_max_age_hours` (default 48)
 - Done when: `tldw run --dry-run` shows which videos would be processed and why
   (watched / too long / off-topic / ok).

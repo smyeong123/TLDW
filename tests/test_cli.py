@@ -122,3 +122,60 @@ def test_serve_without_token_exits_2(tmp_path, monkeypatch):
     result = runner.invoke(cli.app, ["serve", "--config", str(cfg)])
     assert result.exit_code == 2
     assert "TLDW_EXTENSION_TOKEN" in result.output
+
+
+def _seed_snapshot(tmp_path, items):
+    with State(tmp_path / "state.db") as s:
+        for vid, pct in items:
+            s.upsert_new(vid, f"title {vid}", watched_pct=pct, duration_s=600)
+        s.record_snapshot("watch_later", "2026-10-20T00:00:00+00:00", len(items))
+
+
+def _write_wl_config(tmp_path, topics="[]"):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(f"source: watch_later\ntopics: {topics}\nstate_db: state.db\n")
+    return cfg
+
+
+def test_run_dry_run_shows_decisions_and_changes_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr("tldw.pipeline.optional_service", lambda cfg: None)
+    cfg = _write_wl_config(tmp_path)
+    _seed_snapshot(tmp_path, [("aaaaaaaaaaa", 0.9), ("bbbbbbbbbbb", 0.1)])
+    result = runner.invoke(cli.app, ["run", "--dry-run", "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    assert "Dry run" in result.output
+    assert "watched" in result.output and "process" in result.output
+    assert "process: 1, watched: 1" in result.output
+    with State(tmp_path / "state.db") as s:
+        assert {r.stage for r in s.list()} == {Stage.NEW}
+
+
+def test_run_applies_decisions(tmp_path, monkeypatch):
+    monkeypatch.setattr("tldw.pipeline.optional_service", lambda cfg: None)
+    cfg = _write_wl_config(tmp_path)
+    _seed_snapshot(tmp_path, [("aaaaaaaaaaa", 0.9), ("bbbbbbbbbbb", None)])
+    result = runner.invoke(cli.app, ["run", "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    with State(tmp_path / "state.db") as s:
+        assert s.get("aaaaaaaaaaa").stage == Stage.WATCHED
+        assert s.get("bbbbbbbbbbb").stage == Stage.FILTERED_IN
+
+
+def test_run_with_topics_needs_api_key(tmp_path, monkeypatch):
+    monkeypatch.setattr("tldw.pipeline.optional_service", lambda cfg: None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    cfg = _write_wl_config(tmp_path, topics="[ML]")
+    _seed_snapshot(tmp_path, [("aaaaaaaaaaa", 0.1)])
+    result = runner.invoke(cli.app, ["run", "--dry-run", "--config", str(cfg)])
+    assert result.exit_code == 2
+    assert "ANTHROPIC_API_KEY" in result.output
+
+
+def test_run_warns_without_snapshot(tmp_path, monkeypatch):
+    monkeypatch.setattr("tldw.pipeline.optional_service", lambda cfg: None)
+    cfg = _write_wl_config(tmp_path)
+    result = runner.invoke(cli.app, ["run", "--dry-run", "--config", str(cfg)])
+    assert result.exit_code == 0
+    assert "no Watch Later snapshot" in result.output
+    assert "nothing pending" in result.output

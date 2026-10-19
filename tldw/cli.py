@@ -1,9 +1,10 @@
-"""Typer CLI: auth, list, import, serve; run, retry, migrate-wl are added in later phases."""
+"""Typer CLI: auth, list, run, import, serve; retry, migrate-wl are added in later phases."""
 
 from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +12,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from tldw import intake, youtube
+from tldw import filter as flt
+from tldw import intake, pipeline, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import State
@@ -116,6 +118,64 @@ def list_cmd(config: ConfigOpt = Path("config.yaml")) -> None:
             )
     console.print(table)
     console.print(f"[dim]API quota used this call: {youtube.quota.used} units[/dim]")
+
+
+_VERDICT_STYLE = {
+    "process": "green",
+    "watched": "dim",
+    "too_long": "yellow",
+    "off_topic": "yellow",
+    "error": "red",
+}
+
+
+@app.command()
+def run(
+    config: ConfigOpt = Path("config.yaml"),
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show decisions without changing any stage")
+    ] = False,
+) -> None:
+    """Intake + filter: decide which saved videos get a summary, and why."""
+    cfg = _load(config)
+    with State(cfg.state_db) as state:
+        if cfg.config.source == "playlist":
+            yt = _service(cfg)
+            try:
+                items = intake.from_playlist(yt, cfg.config.playlist_name)
+            except intake.PlaylistNotFound as e:
+                err_console.print(f"[red]playlist not found:[/red] '{e}'")
+                raise typer.Exit(4) from e
+            got = intake.ingest(state, items)
+            console.print(f"Playlist: {got.total} videos ({got.new} new)")
+        else:
+            yt = pipeline.optional_service(cfg)
+            warning = pipeline.snapshot_age_warning(state, cfg.config)
+            if warning:
+                err_console.print(f"[yellow]warning:[/yellow] {warning}")
+
+        try:
+            classifier = pipeline.make_classifier(cfg)
+        except ValueError as e:
+            err_console.print(f"[red]config error:[/red] {e}")
+            raise typer.Exit(2) from e
+        infos = {}
+        if classifier is not None:
+            infos = pipeline.video_infos(yt, [r.id for r in flt.pending(state, cfg.config)])
+        decisions = flt.run_filter(state, cfg.config, classifier, infos=infos, dry_run=dry_run)
+
+    title = "Dry run: nothing changed" if dry_run else "Filter decisions"
+    table = Table(title=f"{title} ({len(decisions)} videos)")
+    table.add_column("video id", style="cyan", no_wrap=True)
+    table.add_column("title", max_width=50)
+    table.add_column("decision")
+    table.add_column("why", max_width=60)
+    for d in decisions:
+        style = _VERDICT_STYLE[d.verdict]
+        table.add_row(d.video_id, d.title, f"[{style}]{d.verdict}[/{style}]", d.reason)
+    console.print(table)
+    counts = Counter(d.verdict for d in decisions)
+    console.print(", ".join(f"{k}: {v}" for k, v in sorted(counts.items())) or "nothing pending")
 
 
 @app.command("import")

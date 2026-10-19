@@ -34,7 +34,9 @@ class Config(BaseModel):
     source: Source = "watch_later"
     playlist_name: str = "TLDW"
     output_playlist_name: str = "TLDW Shorts"
-    topics: list[str] = Field(min_length=1)
+    # Empty = summarize every unwatched video; otherwise only videos classified into one.
+    topics: list[str] = Field(default_factory=list)
+    llm_model: str = "claude-opus-5-5"
     output_language: str = "match"
     confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     max_source_minutes: int = Field(default=120, gt=0)

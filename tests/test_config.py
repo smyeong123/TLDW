@@ -16,9 +16,9 @@ def test_repo_config_yaml_loads():
     assert cfg.state_db == REPO_ROOT / "state.db"
 
 
-def test_topics_required():
-    with pytest.raises(ValueError):
-        Config(topics=[])
+def test_topics_optional():
+    assert Config().topics == []
+    assert Config(topics=["x"]).topics == ["x"]
 
 
 def test_output_language_validation():
