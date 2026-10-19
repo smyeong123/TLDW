@@ -98,7 +98,7 @@ plans.md
       upserts `{video_id, title, channel, duration_s, watched_pct}` and records `snapshot_at`
 - [x] Skip videos watched ≥ `watched_threshold` (default 0.5) → new stage `watched`
       (reachable from `new`/`filtered_in`, re-checked on every snapshot)
-- [ ] `extension/`: MV3 content script on `youtube.com/playlist?list=WL` scrolls the list
+- [x] `extension/`: MV3 content script on `youtube.com/playlist?list=WL` scrolls the list
       to load every item, reads id/title/channel/length/progress-bar %, then a popup
       button sends it to `tldw serve` (or downloads the JSON when serve isn't running)
 - [x] `source: watch_later | playlist` in config; `tldw run` warns if the newest snapshot
@@ -194,3 +194,14 @@ plans.md
      they were watched. It can only give "opened at all", not the 50% threshold.
   3. *Manual marking*: the user marks videos as watched (e.g. `tldw skip <id>`).
      Simple, but it is extra effort for the user.
+- **2026-10-20 (Phase 1, extension)** The content script reads the rendered Watch Later DOM
+  (`ytd-playlist-video-renderer`, the resume bar `#progress` width = watched %). Content
+  scripts run in an isolated world and can't see `ytInitialData`, so the DOM is the only
+  reliable source. The selectors have **not been checked against live YouTube yet** (no
+  browser in the dev loop). The first real run should check that `watched_pct` matches
+  the red bars. If YouTube changes its markup, the popup reports "could not read them",
+  and the fix goes in `SELECTORS` in `extension/content.js`. A video never opened has no
+  bar, so it counts as 0% watched.
+- **2026-10-20 (Phase 1)** Classifier: `anthropic` 1.15 `messages.parse(output_format=...)`
+  at effort `low`. The server-side refusal `fallbacks` parameter isn't on the non-beta
+  `parse`; a refused classification just counts as off-topic.
