@@ -107,7 +107,8 @@ plans.md
   (watched / too long / off-topic / ok).
 
 ### Phase 2 — Transcript + script
-- [ ] `transcript.py` with the three-tier fallback; store transcript to `cache/<id>.json`
+- [x] `transcript.py` with the three-tier fallback; store transcript to `cache/<id>.json`
+      _(two tiers; Whisper tier dropped per the captions-only decision)_
 - [ ] `script.py`: Claude call that returns strict JSON matching `Script` schema
       (`context`, `points[{claim, detail, timestamp_s}]`, `takeaway`, `title`, `language`)
 - [ ] Validate: 3–5 points, each timestamp within video duration, total word count
@@ -205,3 +206,11 @@ plans.md
 - **2026-10-20 (Phase 1)** Classifier: `anthropic` 1.15 `messages.parse(output_format=...)`
   at effort `low`. The server-side refusal `fallbacks` parameter isn't on the non-beta
   `parse`; a refused classification just counts as off-topic.
+- **2026-10-20 (Phase 2, transcripts)** `youtube-transcript-api` 1.2 uses an instance
+  API (`YouTubeTranscriptApi().list(id)` → tracks with `language_code`/`is_generated`).
+  The track is chosen by spoken language: an auto-generated track (yt-dlp: the `<lang>-orig`
+  key) tells us what's spoken. A manual track in that language beats the auto one, so
+  uploader translations aren't picked by mistake. The yt-dlp tier always runs with
+  `--skip-download` and writes only a json3 subtitle file, which is deleted after parsing.
+  Both tools can get blocked from datacenter IPs (`RequestBlocked`/`IpBlocked`); on a home
+  connection they normally work.
