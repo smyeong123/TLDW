@@ -133,7 +133,7 @@ plans.md
 - [x] `deliver/telegram.py`: send video with caption = title + takeaway + source URL
 - [x] On successful delivery: `playlistItems.delete` the source from `TLDW` → `removed`
       (`source: playlist` only; for Watch Later see "Open questions (later)")
-- [ ] Failures go to `failed` with error text; `tldw retry` reprocesses them
+- [x] Failures go to `failed` with error text; `tldw retry` reprocesses them
 - Done when: a short appears in my YouTube `TLDW Shorts` playlist and the source is gone from `TLDW`.
 
 ### Phase 5 — Operate
@@ -222,3 +222,11 @@ plans.md
   bottom ~22% and the right edge, where the Shorts UI sits. Font: Apple SD Gothic Neo
   (Latin + Hangul) on macOS, Noto Sans CJK on Linux. Title/takeaway slides, captions,
   and ffmpeg assembly will **not** be built until the style is approved.
+- **2026-10-20 (Phase 4)** Delivery records each channel in a `deliveries` table, so if
+  Telegram fails after YouTube succeeded, the retry won't upload to YouTube again (that
+  would cost 1,600 quota units). With `source: watch_later` the video stays `delivered`:
+  it is not removed from Watch Later, which is still an open question. Uploads use
+  category 22 (People & Blogs) because TLDW covers any kind of video, and titles are
+  clipped to YouTube's 100-char limit by shortening the original title first. Phase 4's
+  done-criterion can't be checked until rendering exists (style gate) and real
+  credentials are set.
