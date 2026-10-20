@@ -138,7 +138,7 @@ plans.md
 
 ### Phase 5 — Operate
 - [x] `tldw run` is idempotent; add `--limit`, `--topic`, `--since`
-- [ ] `tldw migrate-wl <takeout_csv>`: adds videos from a Watch Later export into `TLDW`
+- [x] `tldw migrate-wl <takeout_csv>`: adds videos from a Watch Later export into `TLDW`
 - [ ] Cron example in README; log to `logs/` with rotation
 - [ ] Cost/quota report at end of each run (API units used, LLM tokens, TTS seconds)
 
@@ -230,3 +230,9 @@ plans.md
   clipped to YouTube's 100-char limit by shortening the original title first. Phase 4's
   done-criterion can't be checked until rendering exists (style gate) and real
   credentials are set.
+- **2026-10-21 (Phase 5, migrate-wl)** Only needed with `source: playlist`, since the
+  extension reads Watch Later directly. The parser finds the `Video ID` header row, so it
+  handles both the current `Watch later-videos.csv` layout and the older one with a
+  metadata block. **Not yet checked against a real Takeout export.** Each add costs 50
+  units (~190/day on the default quota). It stops on quota, and a rerun skips videos
+  already in the playlist.

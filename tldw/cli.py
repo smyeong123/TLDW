@@ -15,7 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tldw import filter as flt
-from tldw import intake, pipeline, render, youtube
+from tldw import intake, migrate, pipeline, render, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import Stage, State
@@ -272,6 +272,44 @@ def retry(
                 continue
             state.reset(vid, stage)
             console.print(f"{vid}: back to {stage}")
+
+
+@app.command("migrate-wl")
+def migrate_wl(
+    takeout_csv: Annotated[Path, typer.Argument(help="Takeout 'Watch later-videos.csv'")],
+    config: ConfigOpt = Path("config.yaml"),
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Only count")] = False,
+) -> None:
+    """Copy a Google Takeout Watch Later export into playlist_name (for source: playlist)."""
+    cfg = _load(config)
+    try:
+        ids = migrate.parse_takeout_csv(takeout_csv.read_text(encoding="utf-8"))
+    except OSError as e:
+        err_console.print(f"[red]cannot read {takeout_csv}:[/red] {e}")
+        raise typer.Exit(2) from e
+    if not ids:
+        err_console.print("[red]no video ids found[/red] (expected a 'Video ID' column)")
+        raise typer.Exit(2)
+    if cfg.config.source != "playlist":
+        err_console.print(
+            "[yellow]note:[/yellow] source is watch_later; the extension already reads "
+            "Watch Later, so this is only needed with source: playlist"
+        )
+    yt = _service(cfg)
+    r = migrate.migrate(yt, ids, cfg.config.playlist_name, dry_run=dry_run)
+    name = cfg.config.playlist_name
+    if dry_run:
+        console.print(
+            f"{len(ids)} in export: {len(r.already)} already in '{name}', "
+            f"{len(r.remaining)} would be added (~{50 * len(r.remaining)} quota units)"
+        )
+        return
+    console.print(f"Added {len(r.added)} to '{name}' ({len(r.already)} were already there)")
+    for vid, why in r.failed.items():
+        err_console.print(f"[yellow]skipped[/yellow] {vid}: {why} (deleted or private?)")
+    if r.remaining:
+        console.print(f"[yellow]Quota reached:[/yellow] {len(r.remaining)} left; rerun tomorrow.")
+    console.print(f"[dim]API quota used: {youtube.quota.used} units[/dim]")
 
 
 @app.command("import")
