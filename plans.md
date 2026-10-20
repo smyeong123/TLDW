@@ -127,7 +127,7 @@ plans.md
 - Done when: a sample short plays correctly on a phone and is under 3 minutes.
 
 ### Phase 4 — Deliver + cleanup
-- [ ] `deliver/youtube.py`: `videos.insert` (privacyStatus=private, selfDeclaredMadeForKids=false),
+- [x] `deliver/youtube.py`: `videos.insert` (privacyStatus=private, selfDeclaredMadeForKids=false),
       then `playlistItems.insert` into `TLDW Shorts`. Respect `max_shorts_per_run`
       and stop gracefully on quota errors
 - [ ] `deliver/telegram.py`: send video with caption = title + takeaway + source URL
