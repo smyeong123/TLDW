@@ -117,7 +117,7 @@ plans.md
 - Done when: `tldw run --until scripted` produces readable JSON scripts.
 
 ### Phase 3 — Render
-- [ ] `tts.py`: synthesize each section separately; keep per-section durations
+- [x] `tts.py`: synthesize each section separately; keep per-section durations
 - [ ] `render.py`: one slide per section (title slide, N point slides, takeaway slide).
       Big readable text, high contrast, topic label top-left, timestamp bottom-right.
       No logos, thumbnails, or frames from the source video
