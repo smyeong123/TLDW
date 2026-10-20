@@ -131,7 +131,7 @@ plans.md
       then `playlistItems.insert` into `TLDW Shorts`. Respect `max_shorts_per_run`
       and stop gracefully on quota errors
 - [x] `deliver/telegram.py`: send video with caption = title + takeaway + source URL
-- [ ] On successful delivery: `playlistItems.delete` the source from `TLDW` → `removed`
+- [x] On successful delivery: `playlistItems.delete` the source from `TLDW` → `removed`
       (`source: playlist` only; for Watch Later see "Open questions (later)")
 - [ ] Failures go to `failed` with error text; `tldw retry` reprocesses them
 - Done when: a short appears in my YouTube `TLDW Shorts` playlist and the source is gone from `TLDW`.

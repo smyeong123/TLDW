@@ -7,6 +7,7 @@ Stages: new -> filtered_in | filtered_out | watched -> transcribed -> scripted -
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -57,6 +58,13 @@ CREATE TABLE IF NOT EXISTS videos (
     updated_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_videos_stage ON videos(stage);
+CREATE TABLE IF NOT EXISTS deliveries (
+    video_id     TEXT NOT NULL,
+    channel      TEXT NOT NULL,
+    ref          TEXT,
+    delivered_at TEXT NOT NULL,
+    PRIMARY KEY (video_id, channel)
+);
 CREATE TABLE IF NOT EXISTS snapshots (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     source    TEXT NOT NULL,
@@ -186,6 +194,21 @@ class State:
         )
         self._conn.commit()
 
+    def record_delivery(self, video_id: str, channel: str, ref: str | None) -> None:
+        """Remember a channel got the short, so a retry never sends it there twice."""
+        self._conn.execute(
+            "INSERT OR REPLACE INTO deliveries (video_id, channel, ref, delivered_at) "
+            "VALUES (?, ?, ?, ?)",
+            (video_id, channel, ref, _now()),
+        )
+        self._conn.commit()
+
+    def deliveries(self, video_id: str) -> dict[str, str | None]:
+        rows = self._conn.execute(
+            "SELECT channel, ref FROM deliveries WHERE video_id = ?", (video_id,)
+        )
+        return {r["channel"]: r["ref"] for r in rows}
+
     def latest_snapshot_at(self, source: str) -> str | None:
         """taken_at of the newest snapshot from `source`, or None if there never was one."""
         row = self._conn.execute(
@@ -224,6 +247,17 @@ class State:
             (Stage.FAILED, f"[at {rec.stage}] {error}"[:2000], _now(), video_id),
         )
         self._conn.commit()
+
+    def failed_at(self, video_id: str) -> Stage | None:
+        """The stage a failed video was in when it failed (from fail()'s error prefix)."""
+        rec = self.get(video_id)
+        if rec is None or rec.stage != Stage.FAILED or not rec.error:
+            return None
+        m = re.match(r"^\[at (\w+)\]", rec.error)
+        try:
+            return Stage(m.group(1)) if m else None
+        except ValueError:
+            return None
 
     def reset(self, video_id: str, stage: Stage = Stage.NEW) -> None:
         """Explicitly put a video back to an earlier stage (used by `tldw retry`)."""
