@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -149,10 +150,21 @@ def run(
     limit: Annotated[
         int | None, typer.Option(help="Max videos per step (default: max_shorts_per_run)")
     ] = None,
+    topic: Annotated[
+        str | None, typer.Option(help="Only videos classified into this topic")
+    ] = None,
+    since: Annotated[
+        datetime | None,
+        typer.Option(formats=["%Y-%m-%d"], help="Only videos first seen on/after this date"),
+    ] = None,
 ) -> None:
     """Intake -> filter -> transcript -> script. Each step picks up where the last run left off."""
     cfg = _load(config)
-    limit = limit or cfg.config.max_shorts_per_run
+    sel = pipeline.Selection(
+        limit=limit or cfg.config.max_shorts_per_run,
+        topic=topic,
+        since=since.replace(tzinfo=UTC) if since else None,
+    )
     with State(cfg.state_db) as state:
         if cfg.config.source == "playlist":
             yt = _service(cfg)
@@ -182,7 +194,7 @@ def run(
         if dry_run or until == Until.filtered:
             return
 
-        steps = pipeline.transcribe_step(state, cfg, limit=limit)
+        steps = pipeline.transcribe_step(state, cfg, sel=sel)
         if until != Until.transcribed and state.list(Stage.TRANSCRIBED):
             try:
                 client = pipeline.anthropic_client(cfg)
@@ -190,10 +202,10 @@ def run(
                 _print_steps(steps)
                 err_console.print(f"[red]config error:[/red] {e}")
                 raise typer.Exit(2) from e
-            steps += pipeline.script_step(state, cfg, client, limit=limit)
+            steps += pipeline.script_step(state, cfg, client, sel=sel)
         if until == Until.delivered:
             channels = pipeline.default_channels(cfg, yt)
-            steps += pipeline.deliver_step(state, cfg, channels, limit=limit, yt=yt)
+            steps += pipeline.deliver_step(state, cfg, channels, sel=sel, yt=yt)
         _print_steps(steps)
 
 

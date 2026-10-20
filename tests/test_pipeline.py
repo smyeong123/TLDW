@@ -60,7 +60,7 @@ def test_transcribe_step(tmp_path, state):
             raise NoCaptions("no captions")
         return _transcript(vid)
 
-    results = pipeline.transcribe_step(state, cfg, limit=2, fetch=fetch)
+    results = pipeline.transcribe_step(state, cfg, sel=pipeline.Selection(2), fetch=fetch)
     assert [(r.video_id, r.ok) for r in results] == [("aaaaaaaaaaa", True), ("bbbbbbbbbbb", False)]
     assert state.get("aaaaaaaaaaa").stage == Stage.TRANSCRIBED
     assert state.get("bbbbbbbbbbb").stage == Stage.FAILED
@@ -86,7 +86,7 @@ def test_script_step(tmp_path, state, monkeypatch):
         takeaway="t.",
     )
     monkeypatch.setattr(sc, "write_script", lambda *a, **k: script)
-    results = pipeline.script_step(state, cfg, SimpleNamespace(), limit=5)
+    results = pipeline.script_step(state, cfg, SimpleNamespace(), sel=pipeline.Selection(5))
     assert [(r.video_id, r.ok) for r in results] == [("aaaaaaaaaaa", True), ("bbbbbbbbbbb", False)]
     assert state.get("aaaaaaaaaaa").stage == Stage.SCRIPTED
     assert sc.load(sc.script_path(cfg.cache_dir, "aaaaaaaaaaa")) == script
@@ -129,7 +129,7 @@ def test_deliver_both_channels(tmp_path, state):
         youtube=lambda path, title, desc, lang: sent.append(("yt", title, lang)) or "YT1",
         telegram=lambda path, caption: sent.append(("tg", caption)) or "77",
     )
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5)
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5))
     assert r.ok
     assert sent[0] == ("yt", '[ML] Short — TLDW of "Orig aaaaaaaaaaa"', "en")
     assert sent[1][0] == "tg" and "watch?v=aaaaaaaaaaa" in sent[1][1]
@@ -146,12 +146,12 @@ def test_deliver_retry_skips_done_channel(tmp_path, state):
         raise pipeline.dtelegram.TelegramError("down")
 
     ch = pipeline.Channels(youtube=lambda *a: uploads.append(1) or "YT1", telegram=tg_fail)
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5)
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5))
     assert not r.ok and state.failed_at("aaaaaaaaaaa") == Stage.RENDERED
 
     state.reset("aaaaaaaaaaa", Stage.RENDERED)
     ch.telegram = lambda path, caption: "9"
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5)
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5))
     assert r.ok and uploads == [1]  # YouTube not uploaded twice
 
 
@@ -163,7 +163,9 @@ def test_deliver_quota_stops_and_keeps_rendered(tmp_path, state):
     def quota(*a):
         raise pipeline.youtube.QuotaExceeded("quota")
 
-    results = pipeline.deliver_step(state, cfg, pipeline.Channels(youtube=quota), limit=5)
+    results = pipeline.deliver_step(
+        state, cfg, pipeline.Channels(youtube=quota), sel=pipeline.Selection(5)
+    )
     assert len(results) == 1 and "stopping" in results[0].message
     assert {r.stage for r in state.list()} == {Stage.RENDERED}
 
@@ -171,7 +173,7 @@ def test_deliver_quota_stops_and_keeps_rendered(tmp_path, state):
 def test_deliver_missing_channel_fails(tmp_path, state):
     cfg = _cfg(tmp_path, delivery=["telegram"])
     _rendered(state, cfg, "aaaaaaaaaaa")
-    [r] = pipeline.deliver_step(state, cfg, pipeline.Channels(), limit=5)
+    [r] = pipeline.deliver_step(state, cfg, pipeline.Channels(), sel=pipeline.Selection(5))
     assert not r.ok and "TELEGRAM_BOT_TOKEN" in r.message
 
 
@@ -181,7 +183,7 @@ def test_deliver_removes_source_for_playlist(tmp_path, state, monkeypatch):
     deleted = []
     monkeypatch.setattr(pipeline.youtube, "delete_playlist_item", lambda yt, pi: deleted.append(pi))
     ch = pipeline.Channels(telegram=lambda path, caption: "1")
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5, yt=object())
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5), yt=object())
     assert r.ok and "removed from 'TLDW'" in r.message
     assert deleted == ["PI1"]
     assert state.get("aaaaaaaaaaa").stage == Stage.REMOVED
@@ -196,10 +198,21 @@ def test_deferred_removal_retried(tmp_path, state, monkeypatch):
 
     monkeypatch.setattr(pipeline.youtube, "delete_playlist_item", quota)
     ch = pipeline.Channels(telegram=lambda path, caption: "1")
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5, yt=object())
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5), yt=object())
     assert "deferred" in r.message and state.get("aaaaaaaaaaa").stage == Stage.DELIVERED
 
     monkeypatch.setattr(pipeline.youtube, "delete_playlist_item", lambda yt, pi: None)
-    [r] = pipeline.deliver_step(state, cfg, ch, limit=5, yt=object())
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5), yt=object())
     assert r.step == "remove" and r.ok
     assert state.get("aaaaaaaaaaa").stage == Stage.REMOVED
+
+
+def test_selection_filters_topic_since_and_limit(state):
+    for vid, topic in (("a", "ML / AI"), ("b", "Finance"), ("c", "ml / ai"), ("d", "ML / AI")):
+        state.upsert_new(vid, vid)
+        state.set_stage(vid, Stage.FILTERED_IN, topic=topic)
+    recs = state.list(Stage.FILTERED_IN)
+    assert [r.id for r in pipeline.Selection(2, topic="ML / AI").pick(recs)] == ["a", "c"]
+    assert [r.id for r in pipeline.Selection(10).pick(recs)] == ["a", "b", "c", "d"]
+    future = datetime(2100, 1, 1, tzinfo=UTC)
+    assert pipeline.Selection(10, since=future).pick(recs) == []

@@ -137,7 +137,7 @@ plans.md
 - Done when: a short appears in my YouTube `TLDW Shorts` playlist and the source is gone from `TLDW`.
 
 ### Phase 5 — Operate
-- [ ] `tldw run` is idempotent; add `--limit`, `--topic`, `--since`
+- [x] `tldw run` is idempotent; add `--limit`, `--topic`, `--since`
 - [ ] `tldw migrate-wl <takeout_csv>`: adds videos from a Watch Later export into `TLDW`
 - [ ] Cron example in README; log to `logs/` with rotation
 - [ ] Cost/quota report at end of each run (API units used, LLM tokens, TTS seconds)
