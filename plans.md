@@ -214,3 +214,11 @@ plans.md
   `--skip-download` and writes only a json3 subtitle file, which is deleted after parsing.
   Both tools can get blocked from datacenter IPs (`RequestBlocked`/`IpBlocked`); on a home
   connection they normally work.
+- **2026-10-20 (Phase 3 gate) — waiting for the user's approval.** Draft point slide:
+  `uv run tldw sample-slide` (→ `out/sample_slide.png`) and `--lang ko`
+  (→ `out/sample_slide_ko.png`). Draft style: slate-900 background, white bold claim
+  (76 px), muted detail (50 px), amber topic pill + "2 / 4" top-left, `TLDW · <channel>`
+  bottom-left, amber `▶ m:ss` source timestamp bottom-right. Text stays out of the
+  bottom ~22% and the right edge, where the Shorts UI sits. Font: Apple SD Gothic Neo
+  (Latin + Hangul) on macOS, Noto Sans CJK on Linux. Title/takeaway slides, captions,
+  and ffmpeg assembly will **not** be built until the style is approved.
