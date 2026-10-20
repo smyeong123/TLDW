@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.table import Table
 
 from tldw import filter as flt
-from tldw import intake, pipeline, youtube
+from tldw import intake, pipeline, render, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import Stage, State
@@ -262,6 +262,41 @@ def serve(
         pass
     finally:
         srv.server_close()
+
+
+@app.command("sample-slide")
+def sample_slide(
+    config: ConfigOpt = Path("config.yaml"),
+    lang: Annotated[str, typer.Option(help="en or ko sample text")] = "en",
+) -> None:
+    """Render one sample point slide (draft style) to out/ for style approval."""
+    cfg = _load(config)
+    samples = {
+        "en": dict(
+            claim="Reading memory in order is far faster than chasing pointers.",
+            detail="CPUs fetch 64-byte cache lines, so the next values come along for free.",
+            topic="Systems design",
+            channel="Core Dump",
+        ),
+        "ko": dict(
+            claim="메모리를 순서대로 읽으면 포인터를 따라가는 것보다 훨씬 빠르다.",
+            detail="CPU는 64바이트 캐시 라인 단위로 읽어서 다음 값이 함께 따라온다.",
+            topic="시스템 설계",
+            channel="코어 덤프",
+        ),
+    }
+    if lang not in samples:
+        err_console.print(f"[red]unknown --lang {lang}[/red]; use en or ko")
+        raise typer.Exit(2)
+    suffix = "" if lang == "en" else f"_{lang}"
+    out = render.render_point_slide(
+        cfg.out_dir / f"sample_slide{suffix}.png",
+        index=2,
+        total=4,
+        timestamp="4:10",
+        **samples[lang],
+    )
+    console.print(f"Wrote {out}")
 
 
 if __name__ == "__main__":
