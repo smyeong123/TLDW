@@ -9,8 +9,9 @@ script → render 9:16 → deliver.** See `plans.md` for the full design and pha
 
 ## Status
 
-Phase 0 (scaffold, config, auth, state) and Phase 1 (intake, watched/length/topic filter,
-`tldw run --dry-run`, browser extension) are done. Phases 2–5 are in progress.
+Done: intake (extension or API playlist), watched/length/topic filter, captions, Claude
+script, TTS, delivery (YouTube private + Telegram), `tldw retry`. Waiting: slide style
+approval (`uv run tldw sample-slide`) before video rendering is built. See `plans.md`.
 
 ## One-time setup
 
@@ -27,8 +28,12 @@ uv run tldw --help
 cp .env.example .env
 openssl rand -hex 24      # paste as TLDW_EXTENSION_TOKEN in .env
 # ANTHROPIC_API_KEY: needed for topic filtering (if `topics` is set) and for scripts
-# TELEGRAM_*: when Phase 4 lands
+# TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID: for Telegram delivery (see below)
 ```
+
+**Telegram:** talk to [@BotFather](https://t.me/BotFather) → `/newbot` → copy the token.
+Make a private channel, add the bot as an admin, post anything, then open
+`https://api.telegram.org/bot<TOKEN>/getUpdates` and copy `chat.id` (starts with `-100`).
 
 ### 3. Browser extension (reads Watch Later + how much you watched)
 
@@ -82,7 +87,9 @@ uv run tldw run --dry-run
 ```
 
 shows every pending video and what would happen to it (`process`, `watched`, `too_long`,
-`off_topic`) and why, without changing anything. Drop `--dry-run` to record the decisions.
+`off_topic`) and why, without changing anything. Drop `--dry-run` to record the decisions
+and go on to captions and scripts (`--until filtered|transcribed|scripted|delivered`,
+`--limit N`). Failed videos: `uv run tldw retry` lists them, `tldw retry --all` requeues.
 
 ## Development
 

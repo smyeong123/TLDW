@@ -125,6 +125,7 @@ class Until(StrEnum):
     filtered = "filtered"
     transcribed = "transcribed"
     scripted = "scripted"
+    delivered = "delivered"  # delivers videos already rendered (rendering awaits style approval)
 
 
 _VERDICT_STYLE = {
@@ -190,6 +191,9 @@ def run(
                 err_console.print(f"[red]config error:[/red] {e}")
                 raise typer.Exit(2) from e
             steps += pipeline.script_step(state, cfg, client, limit=limit)
+        if until == Until.delivered:
+            channels = pipeline.default_channels(cfg, yt)
+            steps += pipeline.deliver_step(state, cfg, channels, limit=limit, yt=yt)
         _print_steps(steps)
 
 
@@ -220,6 +224,42 @@ def _print_steps(steps: list[pipeline.StepResult]) -> None:
         mark = "[green]ok[/green]" if r.ok else "[red]failed[/red]"
         table.add_row(r.video_id, r.title, r.step, f"{mark} {r.message}")
     console.print(table)
+
+
+@app.command()
+def retry(
+    video_ids: Annotated[list[str] | None, typer.Argument(help="Failed videos to retry")] = None,
+    all_failed: Annotated[bool, typer.Option("--all", help="Retry every failed video")] = False,
+    config: ConfigOpt = Path("config.yaml"),
+) -> None:
+    """Put failed videos back to the stage they failed at; the next `tldw run` redoes it."""
+    cfg = _load(config)
+    with State(cfg.state_db) as state:
+        if all_failed:
+            targets = [r.id for r in state.list(Stage.FAILED)]
+        elif video_ids:
+            targets = video_ids
+        else:
+            failed = state.list(Stage.FAILED)
+            if not failed:
+                console.print("No failed videos.")
+                return
+            table = Table(title=f"Failed videos ({len(failed)})")
+            table.add_column("video id", style="cyan", no_wrap=True)
+            table.add_column("title", max_width=40)
+            table.add_column("error", max_width=70)
+            for r in failed:
+                table.add_row(r.id, r.title, r.error or "")
+            console.print(table)
+            console.print("Retry with: tldw retry <id>... or tldw retry --all")
+            return
+        for vid in targets:
+            stage = state.failed_at(vid)
+            if stage is None:
+                err_console.print(f"[yellow]skip[/yellow] {vid}: not a failed video")
+                continue
+            state.reset(vid, stage)
+            console.print(f"{vid}: back to {stage}")
 
 
 @app.command("import")

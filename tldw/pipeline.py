@@ -1,4 +1,4 @@
-"""Glue for `tldw run`: intake -> filter -> transcript -> script (-> later phases).
+"""Glue for `tldw run`: intake -> filter -> transcript -> script -> (render) -> deliver.
 
 Kept out of cli.py so it is testable.
 """
@@ -8,15 +8,20 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import anthropic
 from googleapiclient.discovery import Resource
+from googleapiclient.errors import HttpError
 
 from tldw import script as sc
 from tldw import transcript as tr
 from tldw import youtube
 from tldw.classify import ClaudeClassifier, VideoInfo
 from tldw.config import AppConfig, Config
+from tldw.deliver import common as dcommon
+from tldw.deliver import telegram as dtelegram
+from tldw.deliver import youtube as dyoutube
 from tldw.state import Stage, State
 
 
@@ -138,3 +143,119 @@ def script_step(
         msg = f"{len(script.points)} points, {script.language}: {script.title}"
         results.append(StepResult(rec.id, rec.title, "script", True, msg))
     return results
+
+
+def video_path(cfg: AppConfig, video_id: str) -> Path:
+    return cfg.out_dir / f"{video_id}.mp4"
+
+
+@dataclass
+class Channels:
+    """How each delivery channel sends one short. Injected so tests need no network."""
+
+    youtube: Callable[..., str] | None = None  # (path, title, description, language) -> id
+    telegram: Callable[..., str] | None = None  # (path, caption) -> message id
+
+
+def default_channels(cfg: AppConfig, yt: Resource | None) -> Channels:
+    ch = Channels()
+    if "youtube" in cfg.config.delivery and yt is not None:
+        playlist: list[str] = []  # resolved on first upload (costs quota only when used)
+
+        def upload(path: Path, title: str, description: str, language: str | None) -> str:
+            if not playlist:
+                playlist.append(dyoutube.ensure_playlist(yt, cfg.config.output_playlist_name))
+            return dyoutube.upload_short(
+                yt,
+                path,
+                title=title,
+                description=description,
+                language=language,
+                playlist_id=playlist[0],
+            )
+
+        ch.youtube = upload
+    token, chat = cfg.secrets.telegram_bot_token, cfg.secrets.telegram_chat_id
+    if "telegram" in cfg.config.delivery and token and chat:
+
+        def send(path: Path, caption: str) -> str:
+            return str(dtelegram.send_video(token, chat, path, caption))
+
+        ch.telegram = send
+    return ch
+
+
+def deliver_step(
+    state: State,
+    cfg: AppConfig,
+    channels: Channels,
+    *,
+    limit: int,
+    yt: Resource | None = None,
+) -> list[StepResult]:
+    """rendered -> delivered (every configured channel) -> removed (source: playlist only).
+
+    Channels already done for a video are skipped, so a retry never double-posts. A YouTube
+    quota error stops the step and leaves the remaining videos `rendered` for the next run.
+    """
+    results: list[StepResult] = []
+    for rec in state.list(Stage.DELIVERED):  # removals deferred by an earlier quota stop
+        msg = remove_source(state, cfg, rec.id, yt)
+        if msg:
+            results.append(StepResult(rec.id, rec.title, "remove", "removed" in msg, msg[2:]))
+    for rec in state.list(Stage.RENDERED)[:limit]:
+        try:
+            script = sc.load(sc.script_path(cfg.cache_dir, rec.id))
+        except OSError as e:
+            state.fail(rec.id, f"deliver: script missing: {e}")
+            results.append(StepResult(rec.id, rec.title, "deliver", False, str(e)))
+            continue
+        mp4 = video_path(cfg, rec.id)
+        title = dcommon.title(script, rec.topic, rec.title)
+        done = state.deliveries(rec.id)
+        error = None
+        for channel in cfg.config.delivery:
+            if channel in done:
+                continue
+            try:
+                if channel == "youtube":
+                    if channels.youtube is None:
+                        raise RuntimeError("YouTube delivery needs `tldw auth` first")
+                    desc = dcommon.description(script, rec.url, rec.title, rec.channel)
+                    ref = channels.youtube(mp4, title, desc, script.language)
+                else:
+                    if channels.telegram is None:
+                        raise RuntimeError("Telegram delivery needs TELEGRAM_BOT_TOKEN/CHAT_ID")
+                    ref = channels.telegram(mp4, dcommon.telegram_caption(script, title, rec.url))
+            except youtube.QuotaExceeded as e:
+                results.append(StepResult(rec.id, rec.title, "deliver", False, f"{e}; stopping"))
+                return results
+            except (OSError, RuntimeError, dtelegram.TelegramError) as e:
+                error = f"{channel}: {e}"
+                break
+            state.record_delivery(rec.id, channel, ref)
+        if error:
+            state.fail(rec.id, f"deliver: {error}")
+            results.append(StepResult(rec.id, rec.title, "deliver", False, error))
+            continue
+        state.set_stage(rec.id, Stage.DELIVERED)
+        msg = "delivered to " + ", ".join(cfg.config.delivery)
+        msg += remove_source(state, cfg, rec.id, yt)
+        results.append(StepResult(rec.id, rec.title, "deliver", True, msg))
+    return results
+
+
+def remove_source(state: State, cfg: AppConfig, video_id: str, yt: Resource | None) -> str:
+    """Delete the source from the input playlist (API source only). Returns a message suffix."""
+    rec = state.get(video_id)
+    if cfg.config.source != "playlist" or rec is None or not rec.playlist_item_id or yt is None:
+        return ""
+    try:
+        youtube.delete_playlist_item(yt, rec.playlist_item_id)
+    except youtube.QuotaExceeded:
+        return "; removal deferred (quota)"
+    except HttpError as e:
+        state.set_note(video_id, f"could not remove from playlist: {e}")
+        return "; removal failed (see note)"
+    state.set_stage(video_id, Stage.REMOVED)
+    return f"; removed from '{cfg.config.playlist_name}'"

@@ -16,6 +16,7 @@ dependencies = [
     "yt-dlp>=2026.8.19",
     "edge-tts>=7.3.1",
     "pillow>=13.0.0",
+    "requests>=2.34.2",
 ]
 
 [project.scripts]

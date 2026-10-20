@@ -179,3 +179,33 @@ def test_run_warns_without_snapshot(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "no Watch Later snapshot" in result.output
     assert "nothing pending" in result.output
+
+
+def test_retry_resets_to_failed_stage(tmp_path):
+    cfg = _write_config(tmp_path)
+    with State(tmp_path / "state.db") as s:
+        s.upsert_new("aaaaaaaaaaa", "A")
+        s.set_stage("aaaaaaaaaaa", Stage.FILTERED_IN)
+        s.fail("aaaaaaaaaaa", "no captions")
+        s.upsert_new("bbbbbbbbbbb", "B")
+    listing = runner.invoke(cli.app, ["retry", "--config", str(cfg)])
+    assert "no captions" in listing.output and "tldw retry --all" in listing.output
+
+    result = runner.invoke(cli.app, ["retry", "aaaaaaaaaaa", "bbbbbbbbbbb", "--config", str(cfg)])
+    assert result.exit_code == 0, result.output
+    assert "aaaaaaaaaaa: back to filtered_in" in result.output
+    assert "bbbbbbbbbbb: not a failed video" in result.output
+    with State(tmp_path / "state.db") as s:
+        assert s.get("aaaaaaaaaaa").stage == Stage.FILTERED_IN
+        assert s.get("aaaaaaaaaaa").error is None
+
+
+def test_retry_all_and_empty(tmp_path):
+    cfg = _write_config(tmp_path)
+    assert "No failed videos" in runner.invoke(cli.app, ["retry", "--config", str(cfg)]).output
+    with State(tmp_path / "state.db") as s:
+        s.upsert_new("aaaaaaaaaaa", "A")
+        s.fail("aaaaaaaaaaa", "classifier error")
+    runner.invoke(cli.app, ["retry", "--all", "--config", str(cfg)])
+    with State(tmp_path / "state.db") as s:
+        assert s.get("aaaaaaaaaaa").stage == Stage.NEW
