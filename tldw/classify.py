@@ -13,6 +13,8 @@ from typing import Protocol
 import anthropic
 from pydantic import BaseModel, Field
 
+from tldw.usage import usage
+
 DESCRIPTION_CHARS = 2000  # long descriptions are mostly links/sponsors; the top is enough
 
 
@@ -97,6 +99,7 @@ class ClaudeClassifier:
             messages=[{"role": "user", "content": build_prompt(video, self.topics)}],
             output_format=_ClassifierOutput,
         )
+        usage.add_llm(getattr(response, "usage", None))
         if response.stop_reason == "refusal" or response.parsed_output is None:
             return Classification(None, 0.0, f"no classification (stop: {response.stop_reason})")
         out = response.parsed_output

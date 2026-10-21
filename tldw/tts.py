@@ -17,6 +17,7 @@ from typing import Any, Protocol
 import edge_tts
 
 from tldw.script import Script
+from tldw.usage import usage
 
 TICKS_PER_SECOND = 10_000_000  # edge-tts offsets/durations are in 100 ns units
 
@@ -89,6 +90,7 @@ class EdgeTTS:
         if out_path.stat().st_size == 0:
             raise RuntimeError(f"TTS produced no audio for voice {voice}")
         duration = self._probe(out_path) or (words[-1].end if words else 0.0)
+        usage.add_tts(duration)
         return Audio(out_path, duration, words)
 
 

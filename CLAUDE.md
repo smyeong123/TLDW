@@ -6,8 +6,9 @@ output spec, phase checklist, working rules, and a running Findings log.
 ## Where we are
 - Phases 0–1 done: intake (extension snapshot or API playlist), watched-% / length / optional
   topic filter, `tldw run --dry-run`, `tldw serve`/`import`, Chrome extension in `extension/`.
-  Phase 2 done (captions + Claude script, `tldw run --until scripted`). Next: Phase 3
-  (sample slide for the user's style approval first).
+  Phases 2, 4, 5 done (captions, Claude script, TTS, YouTube/Telegram delivery, retry,
+  migrate-wl, logs + usage report). **Blocked:** Phase 3 render/ffmpeg waits for the user to
+  approve the draft slide (`uv run tldw sample-slide`); Watch Later removal is an open question.
 - The user's answers to the open questions are recorded in `plans.md` and `config.yaml`:
   topics = ML / AI, Systems design, Finance, Korean history; output language = match
   source; delivery = YouTube private playlist + Telegram; captions only (no Whisper).
@@ -37,6 +38,8 @@ uv run tldw --help
 - `tldw/youtube.py` — OAuth, playlists, `fetch_video_details`, `quota` meter, `QuotaExceeded`
 - `tldw/intake.py` — IntakeItem, snapshot parsing (`ingest_snapshot`), `from_playlist`
 - `tldw/serve.py` — 127.0.0.1 receiver for the extension; `tldw/classify.py`, `tldw/filter.py`
-- `tldw/pipeline.py` — glue for `tldw run`; `tldw/cli.py` — typer app
+- `tldw/transcript.py`, `tldw/script.py`, `tldw/tts.py`, `tldw/render.py` (draft), `tldw/deliver/`
+- `tldw/pipeline.py` — glue for `tldw run` (steps + `Selection`); `tldw/cli.py` — typer app
+- `tldw/usage.py` — LLM/TTS meters, run report, rotating log; `tldw/migrate.py` — Takeout CSV
 - `extension/` — Chrome MV3; pure helpers in `parse.js` (node tests), DOM in `content.js`
 - Tests use a fake YouTube resource (see `tests/test_youtube.py`); keep tests network-free.

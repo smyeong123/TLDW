@@ -139,8 +139,8 @@ plans.md
 ### Phase 5 — Operate
 - [x] `tldw run` is idempotent; add `--limit`, `--topic`, `--since`
 - [x] `tldw migrate-wl <takeout_csv>`: adds videos from a Watch Later export into `TLDW`
-- [ ] Cron example in README; log to `logs/` with rotation
-- [ ] Cost/quota report at end of each run (API units used, LLM tokens, TTS seconds)
+- [x] Cron example in README; log to `logs/` with rotation
+- [x] Cost/quota report at end of each run (API units used, LLM tokens, TTS seconds)
 
 ## Agent working rules
 - Make one small commit per checklist item; keep `plans.md` checkboxes updated.

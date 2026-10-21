@@ -19,6 +19,9 @@ from tldw import intake, migrate, pipeline, render, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import Stage, State
+from tldw.usage import report, setup_logging, usage
+
+log = logging.getLogger("tldw")
 
 app = typer.Typer(
     help="TLDW: turn the videos you saved but never watched into short summaries.",
@@ -160,6 +163,10 @@ def run(
 ) -> None:
     """Intake -> filter -> transcript -> script. Each step picks up where the last run left off."""
     cfg = _load(config)
+    log_path = setup_logging(cfg.logs_dir)
+    youtube.quota.reset()
+    usage.reset()
+    log.info("run start: dry_run=%s until=%s", dry_run, until)
     sel = pipeline.Selection(
         limit=limit or cfg.config.max_shorts_per_run,
         topic=topic,
@@ -192,6 +199,7 @@ def run(
         decisions = flt.run_filter(state, cfg.config, classifier, infos=infos, dry_run=dry_run)
         _print_decisions(decisions, dry_run)
         if dry_run or until == Until.filtered:
+            _finish(log_path)
             return
 
         steps = pipeline.transcribe_step(state, cfg, sel=sel)
@@ -207,6 +215,13 @@ def run(
             channels = pipeline.default_channels(cfg, yt)
             steps += pipeline.deliver_step(state, cfg, channels, sel=sel, yt=yt)
         _print_steps(steps)
+    _finish(log_path)
+
+
+def _finish(log_path: Path) -> None:
+    line = report(youtube.quota.used)
+    log.info("run end: %s", line)
+    console.print(f"[dim]{line}\nLog: {log_path}[/dim]")
 
 
 def _print_decisions(decisions: list[flt.Decision], dry_run: bool) -> None:
@@ -217,6 +232,7 @@ def _print_decisions(decisions: list[flt.Decision], dry_run: bool) -> None:
     table.add_column("decision")
     table.add_column("why", max_width=60)
     for d in decisions:
+        log.info("decision %s %s: %s", d.video_id, d.verdict, d.reason)
         style = _VERDICT_STYLE[d.verdict]
         table.add_row(d.video_id, d.title, f"[{style}]{d.verdict}[/{style}]", d.reason)
     console.print(table)
@@ -233,6 +249,9 @@ def _print_steps(steps: list[pipeline.StepResult]) -> None:
     table.add_column("step")
     table.add_column("result", max_width=70)
     for r in steps:
+        log.log(
+            logging.INFO if r.ok else logging.WARNING, "%s %s: %s", r.step, r.video_id, r.message
+        )
         mark = "[green]ok[/green]" if r.ok else "[red]failed[/red]"
         table.add_row(r.video_id, r.title, r.step, f"{mark} {r.message}")
     console.print(table)
@@ -337,6 +356,7 @@ def serve(
     """Receive Watch Later snapshots from the browser extension (127.0.0.1 only)."""
     cfg = _load(config)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    setup_logging(cfg.logs_dir)
     try:
         srv = make_server(
             cfg.state_db, cfg.secrets.tldw_extension_token or "", port or cfg.config.serve_port

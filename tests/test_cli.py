@@ -146,6 +146,8 @@ def test_run_dry_run_shows_decisions_and_changes_nothing(tmp_path, monkeypatch):
     assert "Dry run" in result.output
     assert "watched" in result.output and "process" in result.output
     assert "process: 1, watched: 1" in result.output
+    assert "YouTube API: " in result.output and "Claude: 0 calls" in result.output
+    assert (tmp_path / "logs" / "tldw.log").exists()
     with State(tmp_path / "state.db") as s:
         assert {r.stage for r in s.list()} == {Stage.NEW}
 

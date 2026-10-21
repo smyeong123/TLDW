@@ -15,6 +15,7 @@ import anthropic
 from pydantic import BaseModel, Field
 
 from tldw.transcript import Transcript
+from tldw.usage import usage
 
 MIN_SECONDS, MAX_SECONDS = 60, 150
 CHUNK_SECONDS = 30  # transcript lines are merged into ~30 s blocks to save tokens
@@ -169,6 +170,7 @@ def write_script(
             messages=messages,
             output_format=Script,
         )
+        usage.add_llm(getattr(response, "usage", None))
         script = response.parsed_output
         if response.stop_reason == "refusal" or script is None:
             raise ScriptError(f"{meta.video_id}: no script (stop: {response.stop_reason})")
