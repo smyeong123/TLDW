@@ -51,6 +51,10 @@ class QuotaMeter:
         self.used += cost
         self.calls[name] = self.calls.get(name, 0) + 1
 
+    def reset(self) -> None:
+        self.used = 0
+        self.calls = {}
+
 
 quota = QuotaMeter()
 

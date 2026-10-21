@@ -91,6 +91,22 @@ shows every pending video and what would happen to it (`process`, `watched`, `to
 and go on to captions and scripts (`--until filtered|transcribed|scripted|delivered`,
 `--limit N`). Failed videos: `uv run tldw retry` lists them, `tldw retry --all` requeues.
 
+## Run it nightly
+
+Every run appends to `logs/tldw.log` (rotated at 1 MB, 5 files kept) and ends with a
+usage line: YouTube API units, Claude calls/tokens, TTS seconds.
+
+**cron** (`crontab -e`). Use full paths, since cron has a minimal `PATH`:
+
+```cron
+# 03:30 every night: filter, captions, scripts, deliver (up to max_shorts_per_run)
+30 3 * * * cd /path/to/TLDW && /opt/homebrew/bin/uv run tldw run --until delivered >> logs/cron.log 2>&1
+```
+
+On macOS, a sleeping laptop skips cron jobs. A `launchd` agent with
+`StartCalendarInterval` runs the job when the Mac wakes up instead. Keep sending a
+fresh Watch Later snapshot from the extension every day or two so watched-% is current.
+
 ## Development
 
 ```bash

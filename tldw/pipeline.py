@@ -22,7 +22,7 @@ from tldw.config import AppConfig, Config
 from tldw.deliver import common as dcommon
 from tldw.deliver import telegram as dtelegram
 from tldw.deliver import youtube as dyoutube
-from tldw.state import Stage, State
+from tldw.state import Stage, State, VideoRecord
 
 
 def snapshot_age_warning(state: State, cfg: Config, now: datetime | None = None) -> str | None:
@@ -83,6 +83,24 @@ def anthropic_client(cfg: AppConfig) -> anthropic.Anthropic:
 
 
 @dataclass(frozen=True)
+class Selection:
+    """`tldw run --limit/--topic/--since`: which videos each step may pick up."""
+
+    limit: int
+    topic: str | None = None
+    since: datetime | None = None  # only videos first seen at/after this time
+
+    def pick(self, records: list[VideoRecord]) -> list[VideoRecord]:
+        out = [
+            r
+            for r in records
+            if (self.topic is None or (r.topic or "").casefold() == self.topic.casefold())
+            and (self.since is None or datetime.fromisoformat(r.created_at) >= self.since)
+        ]
+        return out[: self.limit]
+
+
+@dataclass(frozen=True)
 class StepResult:
     video_id: str
     title: str
@@ -95,12 +113,12 @@ def transcribe_step(
     state: State,
     cfg: AppConfig,
     *,
-    limit: int,
+    sel: Selection,
     fetch: Callable[..., tr.Transcript] = tr.get_transcript,
 ) -> list[StepResult]:
     """filtered_in -> transcribed (captions cached in cache_dir); failures -> failed."""
     results = []
-    for rec in state.list(Stage.FILTERED_IN)[:limit]:
+    for rec in sel.pick(state.list(Stage.FILTERED_IN)):
         try:
             t = fetch(rec.id, cfg.cache_dir)
         except tr.NoCaptions as e:
@@ -118,11 +136,11 @@ def script_step(
     cfg: AppConfig,
     client: anthropic.Anthropic,
     *,
-    limit: int,
+    sel: Selection,
 ) -> list[StepResult]:
     """transcribed -> scripted (cache_dir/<id>.script.json); failures -> failed."""
     results = []
-    for rec in state.list(Stage.TRANSCRIBED)[:limit]:
+    for rec in sel.pick(state.list(Stage.TRANSCRIBED)):
         path = tr.cache_path(cfg.cache_dir, rec.id)
         meta = sc.VideoMeta(rec.id, rec.title, rec.channel, rec.duration_s)
         try:
@@ -190,7 +208,7 @@ def deliver_step(
     cfg: AppConfig,
     channels: Channels,
     *,
-    limit: int,
+    sel: Selection,
     yt: Resource | None = None,
 ) -> list[StepResult]:
     """rendered -> delivered (every configured channel) -> removed (source: playlist only).
@@ -203,7 +221,7 @@ def deliver_step(
         msg = remove_source(state, cfg, rec.id, yt)
         if msg:
             results.append(StepResult(rec.id, rec.title, "remove", "removed" in msg, msg[2:]))
-    for rec in state.list(Stage.RENDERED)[:limit]:
+    for rec in sel.pick(state.list(Stage.RENDERED)):
         try:
             script = sc.load(sc.script_path(cfg.cache_dir, rec.id))
         except OSError as e:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated
@@ -14,10 +15,13 @@ from rich.console import Console
 from rich.table import Table
 
 from tldw import filter as flt
-from tldw import intake, pipeline, render, youtube
+from tldw import intake, migrate, pipeline, render, youtube
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import Stage, State
+from tldw.usage import report, setup_logging, usage
+
+log = logging.getLogger("tldw")
 
 app = typer.Typer(
     help="TLDW: turn the videos you saved but never watched into short summaries.",
@@ -149,10 +153,25 @@ def run(
     limit: Annotated[
         int | None, typer.Option(help="Max videos per step (default: max_shorts_per_run)")
     ] = None,
+    topic: Annotated[
+        str | None, typer.Option(help="Only videos classified into this topic")
+    ] = None,
+    since: Annotated[
+        datetime | None,
+        typer.Option(formats=["%Y-%m-%d"], help="Only videos first seen on/after this date"),
+    ] = None,
 ) -> None:
     """Intake -> filter -> transcript -> script. Each step picks up where the last run left off."""
     cfg = _load(config)
-    limit = limit or cfg.config.max_shorts_per_run
+    log_path = setup_logging(cfg.logs_dir)
+    youtube.quota.reset()
+    usage.reset()
+    log.info("run start: dry_run=%s until=%s", dry_run, until)
+    sel = pipeline.Selection(
+        limit=limit or cfg.config.max_shorts_per_run,
+        topic=topic,
+        since=since.replace(tzinfo=UTC) if since else None,
+    )
     with State(cfg.state_db) as state:
         if cfg.config.source == "playlist":
             yt = _service(cfg)
@@ -180,9 +199,10 @@ def run(
         decisions = flt.run_filter(state, cfg.config, classifier, infos=infos, dry_run=dry_run)
         _print_decisions(decisions, dry_run)
         if dry_run or until == Until.filtered:
+            _finish(log_path)
             return
 
-        steps = pipeline.transcribe_step(state, cfg, limit=limit)
+        steps = pipeline.transcribe_step(state, cfg, sel=sel)
         if until != Until.transcribed and state.list(Stage.TRANSCRIBED):
             try:
                 client = pipeline.anthropic_client(cfg)
@@ -190,11 +210,18 @@ def run(
                 _print_steps(steps)
                 err_console.print(f"[red]config error:[/red] {e}")
                 raise typer.Exit(2) from e
-            steps += pipeline.script_step(state, cfg, client, limit=limit)
+            steps += pipeline.script_step(state, cfg, client, sel=sel)
         if until == Until.delivered:
             channels = pipeline.default_channels(cfg, yt)
-            steps += pipeline.deliver_step(state, cfg, channels, limit=limit, yt=yt)
+            steps += pipeline.deliver_step(state, cfg, channels, sel=sel, yt=yt)
         _print_steps(steps)
+    _finish(log_path)
+
+
+def _finish(log_path: Path) -> None:
+    line = report(youtube.quota.used)
+    log.info("run end: %s", line)
+    console.print(f"[dim]{line}\nLog: {log_path}[/dim]")
 
 
 def _print_decisions(decisions: list[flt.Decision], dry_run: bool) -> None:
@@ -205,6 +232,7 @@ def _print_decisions(decisions: list[flt.Decision], dry_run: bool) -> None:
     table.add_column("decision")
     table.add_column("why", max_width=60)
     for d in decisions:
+        log.info("decision %s %s: %s", d.video_id, d.verdict, d.reason)
         style = _VERDICT_STYLE[d.verdict]
         table.add_row(d.video_id, d.title, f"[{style}]{d.verdict}[/{style}]", d.reason)
     console.print(table)
@@ -221,6 +249,9 @@ def _print_steps(steps: list[pipeline.StepResult]) -> None:
     table.add_column("step")
     table.add_column("result", max_width=70)
     for r in steps:
+        log.log(
+            logging.INFO if r.ok else logging.WARNING, "%s %s: %s", r.step, r.video_id, r.message
+        )
         mark = "[green]ok[/green]" if r.ok else "[red]failed[/red]"
         table.add_row(r.video_id, r.title, r.step, f"{mark} {r.message}")
     console.print(table)
@@ -262,6 +293,44 @@ def retry(
             console.print(f"{vid}: back to {stage}")
 
 
+@app.command("migrate-wl")
+def migrate_wl(
+    takeout_csv: Annotated[Path, typer.Argument(help="Takeout 'Watch later-videos.csv'")],
+    config: ConfigOpt = Path("config.yaml"),
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Only count")] = False,
+) -> None:
+    """Copy a Google Takeout Watch Later export into playlist_name (for source: playlist)."""
+    cfg = _load(config)
+    try:
+        ids = migrate.parse_takeout_csv(takeout_csv.read_text(encoding="utf-8"))
+    except OSError as e:
+        err_console.print(f"[red]cannot read {takeout_csv}:[/red] {e}")
+        raise typer.Exit(2) from e
+    if not ids:
+        err_console.print("[red]no video ids found[/red] (expected a 'Video ID' column)")
+        raise typer.Exit(2)
+    if cfg.config.source != "playlist":
+        err_console.print(
+            "[yellow]note:[/yellow] source is watch_later; the extension already reads "
+            "Watch Later, so this is only needed with source: playlist"
+        )
+    yt = _service(cfg)
+    r = migrate.migrate(yt, ids, cfg.config.playlist_name, dry_run=dry_run)
+    name = cfg.config.playlist_name
+    if dry_run:
+        console.print(
+            f"{len(ids)} in export: {len(r.already)} already in '{name}', "
+            f"{len(r.remaining)} would be added (~{50 * len(r.remaining)} quota units)"
+        )
+        return
+    console.print(f"Added {len(r.added)} to '{name}' ({len(r.already)} were already there)")
+    for vid, why in r.failed.items():
+        err_console.print(f"[yellow]skipped[/yellow] {vid}: {why} (deleted or private?)")
+    if r.remaining:
+        console.print(f"[yellow]Quota reached:[/yellow] {len(r.remaining)} left; rerun tomorrow.")
+    console.print(f"[dim]API quota used: {youtube.quota.used} units[/dim]")
+
+
 @app.command("import")
 def import_cmd(
     snapshot: Annotated[Path, typer.Argument(help="JSON file exported by the TLDW extension")],
@@ -287,6 +356,7 @@ def serve(
     """Receive Watch Later snapshots from the browser extension (127.0.0.1 only)."""
     cfg = _load(config)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+    setup_logging(cfg.logs_dir)
     try:
         srv = make_server(
             cfg.state_db, cfg.secrets.tldw_extension_token or "", port or cfg.config.serve_port
