@@ -11,6 +11,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Delivery = Literal["youtube", "telegram"]
 Source = Literal["watch_later", "playlist"]
+# slides: narrated slideshow mp4 (render.py); snippets: a page that plays the key
+# segments of the source through YouTube's embed player (snippets.py, nothing downloaded).
+Mode = Literal["slides", "snippets"]
 
 
 class Secrets(BaseSettings):
@@ -32,6 +35,7 @@ class Config(BaseModel):
 
     # watch_later: snapshots from the browser extension; playlist: playlist_name via the API.
     source: Source = "watch_later"
+    mode: Mode = "slides"
     playlist_name: str = "TLDW"
     output_playlist_name: str = "TLDW Shorts"
     # Empty = summarize every unwatched video; otherwise only videos classified into one.

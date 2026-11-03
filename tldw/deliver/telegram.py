@@ -1,4 +1,7 @@
-"""Send a finished short to a Telegram chat via the Bot API (sendVideo, 50 MB upload cap)."""
+"""Send a finished summary to a Telegram chat via the Bot API.
+
+sendVideo for slide shorts (50 MB upload cap); sendMessage for snippet-mode link lists.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +11,9 @@ from typing import Any
 import requests
 
 API = "https://api.telegram.org/bot{token}/sendVideo"
+MESSAGE_API = "https://api.telegram.org/bot{token}/sendMessage"
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_MESSAGE_CHARS = 4096
 
 
 class TelegramError(RuntimeError):
@@ -55,4 +60,22 @@ def send_video(
         body = {}
     if resp.status_code != 200 or not body.get("ok"):
         raise TelegramError(f"sendVideo failed ({resp.status_code}): {body.get('description')}")
+    return body["result"]["message_id"]
+
+
+def send_message(token: str, chat_id: str, text: str, *, post: Any = requests.post) -> int:
+    """Plain-text message (links are auto-linked). Returns the Telegram message id."""
+    if len(text) > MAX_MESSAGE_CHARS:
+        text = text[: MAX_MESSAGE_CHARS - 1].rstrip() + "…"
+    data = {"chat_id": chat_id, "text": text, "disable_web_page_preview": "true"}
+    try:
+        resp = post(MESSAGE_API.format(token=token), data=data, timeout=60)
+    except requests.RequestException as e:
+        raise TelegramError(f"network error: {type(e).__name__}") from None  # URL has the token
+    try:
+        body = resp.json()
+    except ValueError:
+        body = {}
+    if resp.status_code != 200 or not body.get("ok"):
+        raise TelegramError(f"sendMessage failed ({resp.status_code}): {body.get('description')}")
     return body["result"]["message_id"]

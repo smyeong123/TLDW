@@ -5,6 +5,14 @@
 #   playlist    - playlist_name below, read through the YouTube API
 source: watch_later
 
+# What a summary is:
+#   slides   - a narrated 9:16 slideshow mp4 (our own script, voice, and slides)
+#   snippets - a page that plays the 3-5 key segments of the original video through
+#              YouTube's embed player (nothing is downloaded). Open it via `tldw serve`;
+#              Telegram gets the timestamped links. YouTube upload is skipped (no mp4).
+# Override for one run with `tldw run --mode slides|snippets`.
+mode: snippets
+
 # Only used with source: playlist (the API can't read Watch Later).
 playlist_name: TLDW
 

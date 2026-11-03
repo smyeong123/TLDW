@@ -161,3 +161,24 @@ def test_json_roundtrip_of_script_unchanged():
     before = json.loads(s.model_dump_json())
     common.description(s, "u", "o", None)
     assert json.loads(s.model_dump_json()) == before
+
+
+def test_send_message_ok_and_clipped():
+    seen = {}
+
+    def post(url, data, timeout):
+        seen.update(url=url, data=data)
+        return _Resp(200, {"ok": True, "result": {"message_id": 7}})
+
+    assert telegram.send_message("TOK", "1", "x" * 5000, post=post) == 7
+    assert seen["url"].endswith("/botTOK/sendMessage")
+    assert len(seen["data"]["text"]) == telegram.MAX_MESSAGE_CHARS
+
+
+def test_send_message_error_hides_token():
+    def post(*a, **k):
+        raise requests.ConnectionError("https://api.telegram.org/botTOK/sendMessage")
+
+    with pytest.raises(telegram.TelegramError) as e:
+        telegram.send_message("TOK", "1", "hi", post=post)
+    assert "TOK" not in str(e.value)

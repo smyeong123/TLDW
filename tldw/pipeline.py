@@ -1,4 +1,4 @@
-"""Glue for `tldw run`: intake -> filter -> transcript -> script -> (render) -> deliver.
+"""Glue for `tldw run`: intake -> filter -> transcript -> script -> render -> deliver.
 
 Kept out of cli.py so it is testable.
 """
@@ -15,10 +15,11 @@ from googleapiclient.discovery import Resource
 from googleapiclient.errors import HttpError
 
 from tldw import script as sc
+from tldw import snippets as sn
 from tldw import transcript as tr
 from tldw import youtube
 from tldw.classify import ClaudeClassifier, VideoInfo
-from tldw.config import AppConfig, Config
+from tldw.config import AppConfig, Config, Mode
 from tldw.deliver import common as dcommon
 from tldw.deliver import telegram as dtelegram
 from tldw.deliver import youtube as dyoutube
@@ -167,12 +168,48 @@ def video_path(cfg: AppConfig, video_id: str) -> Path:
     return cfg.out_dir / f"{video_id}.mp4"
 
 
+def render_step(state: State, cfg: AppConfig, *, sel: Selection, mode: Mode) -> list[StepResult]:
+    """scripted -> rendered. Only snippet pages are built; slides await the style approval."""
+    if mode != "snippets":
+        return []
+    results = []
+    for rec in sel.pick(state.list(Stage.SCRIPTED)):
+        try:
+            script = sc.load(sc.script_path(cfg.cache_dir, rec.id))
+            meta = sn.make_meta(
+                script,
+                video_id=rec.id,
+                original_title=rec.title,
+                channel=rec.channel,
+                topic=rec.topic,
+            )
+            path = sn.write_page(cfg.out_dir, script, meta, rec.duration_s)
+        except (OSError, ValueError) as e:
+            state.fail(rec.id, f"render: {e}")
+            results.append(StepResult(rec.id, rec.title, "render", False, str(e)))
+            continue
+        state.set_stage(rec.id, Stage.RENDERED)
+        msg = f"snippet page, {len(script.points)} clips: {path.name}"
+        results.append(StepResult(rec.id, rec.title, "render", True, msg))
+    return results
+
+
+def rendered_kind(cfg: AppConfig, video_id: str) -> Mode | None:
+    """What render produced for a video: an mp4 (slides), a page (snippets), or nothing."""
+    if video_path(cfg, video_id).exists():
+        return "slides"
+    if sn.page_path(cfg.out_dir, video_id).exists():
+        return "snippets"
+    return None
+
+
 @dataclass
 class Channels:
     """How each delivery channel sends one short. Injected so tests need no network."""
 
     youtube: Callable[..., str] | None = None  # (path, title, description, language) -> id
     telegram: Callable[..., str] | None = None  # (path, caption) -> message id
+    telegram_text: Callable[..., str] | None = None  # (text) -> message id (snippet links)
 
 
 def default_channels(cfg: AppConfig, yt: Resource | None) -> Channels:
@@ -199,7 +236,11 @@ def default_channels(cfg: AppConfig, yt: Resource | None) -> Channels:
         def send(path: Path, caption: str) -> str:
             return str(dtelegram.send_video(token, chat, path, caption))
 
+        def send_text(text: str) -> str:
+            return str(dtelegram.send_message(token, chat, text))
+
         ch.telegram = send
+        ch.telegram_text = send_text
     return ch
 
 
@@ -215,6 +256,7 @@ def deliver_step(
 
     Channels already done for a video are skipped, so a retry never double-posts. A YouTube
     quota error stops the step and leaves the remaining videos `rendered` for the next run.
+    Snippet pages have no mp4: YouTube is skipped and Telegram gets the timestamped links.
     """
     results: list[StepResult] = []
     for rec in state.list(Stage.DELIVERED):  # removals deferred by an earlier quota stop
@@ -228,15 +270,31 @@ def deliver_step(
             state.fail(rec.id, f"deliver: script missing: {e}")
             results.append(StepResult(rec.id, rec.title, "deliver", False, str(e)))
             continue
+        kind = rendered_kind(cfg, rec.id)
+        if kind is None:
+            state.fail(rec.id, "deliver: no rendered mp4 or snippet page")
+            results.append(StepResult(rec.id, rec.title, "deliver", False, "nothing rendered"))
+            continue
         mp4 = video_path(cfg, rec.id)
         title = dcommon.title(script, rec.topic, rec.title)
         done = state.deliveries(rec.id)
         error = None
+        sent: list[str] = []
+        skipped: list[str] = []
         for channel in cfg.config.delivery:
             if channel in done:
+                sent.append(channel)
+                continue
+            if kind == "snippets" and channel == "youtube":
+                skipped.append("youtube (snippets have no mp4)")
                 continue
             try:
-                if channel == "youtube":
+                if kind == "snippets":
+                    if channels.telegram_text is None:
+                        raise RuntimeError("Telegram delivery needs TELEGRAM_BOT_TOKEN/CHAT_ID")
+                    text = sn.telegram_text(script, title, rec.id, rec.duration_s)
+                    ref = channels.telegram_text(text)
+                elif channel == "youtube":
                     if channels.youtube is None:
                         raise RuntimeError("YouTube delivery needs `tldw auth` first")
                     desc = dcommon.description(script, rec.url, rec.title, rec.channel)
@@ -252,12 +310,15 @@ def deliver_step(
                 error = f"{channel}: {e}"
                 break
             state.record_delivery(rec.id, channel, ref)
+            sent.append(channel)
         if error:
             state.fail(rec.id, f"deliver: {error}")
             results.append(StepResult(rec.id, rec.title, "deliver", False, error))
             continue
         state.set_stage(rec.id, Stage.DELIVERED)
-        msg = "delivered to " + ", ".join(cfg.config.delivery)
+        msg = ("delivered to " + ", ".join(sent)) if sent else "snippet page only"
+        if skipped:
+            msg += "; skipped " + ", ".join(skipped)
         msg += remove_source(state, cfg, rec.id, yt)
         results.append(StepResult(rec.id, rec.title, "deliver", True, msg))
     return results
