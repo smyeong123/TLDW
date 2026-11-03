@@ -88,8 +88,15 @@ uv run tldw run --dry-run
 
 shows every pending video and what would happen to it (`process`, `watched`, `too_long`,
 `off_topic`) and why, without changing anything. Drop `--dry-run` to record the decisions
-and go on to captions and scripts (`--until filtered|transcribed|scripted|delivered`,
-`--limit N`). Failed videos: `uv run tldw retry` lists them, `tldw retry --all` requeues.
+and go on to captions, scripts, and rendering
+(`--until filtered|transcribed|scripted|rendered|delivered`, `--limit N`).
+
+**Slides or snippets.** `mode` in `config.yaml` (or `tldw run --mode slides|snippets`)
+picks what a summary is. `slides` is a narrated 9:16 slideshow mp4 (rendering still waits
+on the slide-style approval). `snippets` is a page that plays the 3–5 key segments of the
+original video through YouTube's own embed player; nothing is downloaded. Run
+`uv run tldw serve` and open http://127.0.0.1:8765/ (or `tldw preview <id>`). Telegram
+gets a message with a timestamped link per point. YouTube upload is skipped for snippets. Failed videos: `uv run tldw retry` lists them, `tldw retry --all` requeues.
 
 ## Run it nightly
 

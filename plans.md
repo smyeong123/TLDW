@@ -37,7 +37,8 @@ render 9:16 video → deliver → remove from playlist.**
 | Transcript | `youtube-transcript-api` → fallback `yt-dlp --write-auto-sub --skip-download` → fallback `faster-whisper` on audio only if the user explicitly enables it |
 | LLM | Anthropic API (Claude). One call for topic classification, one for the script |
 | TTS | `edge-tts` (free, has Korean + English voices). Abstract behind an interface so ElevenLabs/OpenAI can be swapped in |
-| Render | Pillow for slide PNGs + `ffmpeg` to assemble 1080×1920, burned-in captions |
+| Mode | `mode: slides \| snippets` in config.yaml, `tldw run --mode` for one run (user, 2026-11-03) |
+| Render | slides: Pillow for slide PNGs + `ffmpeg` to assemble 1080×1920, burned-in captions. snippets: an HTML page per video that plays each point's `[timestamp_s, end_s)` of the source through YouTube's IFrame embed player, served by `tldw serve` (nothing downloaded) |
 | Delivery | Primary: upload as **Private** to my channel into playlist `TLDW Shorts`. Secondary: Telegram bot posting to a private channel |
 | State | SQLite (`state.db`) tracking every video's stage so reruns are idempotent |
 | Scheduling | `cron` entry running `tldw run` nightly; also runnable manually |
@@ -123,7 +124,10 @@ plans.md
       No logos, thumbnails, or frames from the source video
 - [ ] ffmpeg: concat slides with audio, burn captions (word-level if TTS provides
       timings, else per-section), output `out/<id>.mp4`
-- [ ] `tldw preview <id>` opens the file locally
+- [x] `tldw preview <id>` opens the mp4, or the snippet page via `tldw serve`
+- [x] Snippet mode (`mode: snippets`): script points carry `end_s`; `snippets.py` writes
+      `out/snippets/<id>.html` + index; `tldw serve` hosts them; Telegram gets the
+      timestamped links, YouTube upload is skipped (no mp4)
 - Done when: a sample short plays correctly on a phone and is under 3 minutes.
 
 ### Phase 4 — Deliver + cleanup
@@ -236,3 +240,15 @@ plans.md
   metadata block. **Not yet checked against a real Takeout export.** Each add costs 50
   units (~190/day on the default quota). It stops on quota, and a rerun skips videos
   already in the playlist.
+- **2026-11-03 (snippet mode, user decision)** The user wants the summary to be snippets
+  of the original video instead of only generated slides, and to choose between them. The
+  hard rule (no downloading) stays: snippet mode plays segments through YouTube's
+  official IFrame player (`loadVideoById` with `startSeconds`/`endSeconds`), so it is a
+  web page, not an mp4. Consequences: it can't be uploaded to `TLDW Shorts` (YouTube is
+  skipped for these), Telegram gets a text message with one `youtu.be/<id>?t=` link per
+  point, and the page needs an http origin (the embed refuses `file://`), so
+  `tldw serve` hosts it on 127.0.0.1. That means it's viewable on the Mac, not the phone,
+  unless the pages are hosted somewhere later. Videos whose uploader disabled embedding
+  show an error with an "Open on YouTube" link. Scripts made before this have no
+  `end_s`; their clips default to 30 s, cut at the next point. Not yet checked against
+  live YouTube.
