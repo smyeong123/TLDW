@@ -22,12 +22,20 @@ CHUNK_SECONDS = 30  # transcript lines are merged into ~30 s blocks to save toke
 # Speaking rates for the length estimate: words/s for spaced languages, chars/s for CJK.
 WORDS_PER_SECOND = 2.5  # 150 wpm
 CJK_CHARS_PER_SECOND = {"ko": 6.5, "ja": 7.0, "zh": 4.5}
+# Snippet mode plays [timestamp_s, end_s) of the source for each point.
+MIN_CLIP_SECONDS, MAX_CLIP_SECONDS = 10, 45
+DEFAULT_CLIP_SECONDS = 30  # used when a (pre-snippet) script has no end_s
 
 
 class Point(BaseModel):
     claim: str = Field(description="One key claim from the video, one sentence")
     detail: str = Field(description="One supporting detail, example, or number")
     timestamp_s: int = Field(description="Second in the source video where this is discussed")
+    end_s: int | None = Field(
+        default=None,
+        description=f"Second where the clip that shows this point should end "
+        f"({MIN_CLIP_SECONDS}-{MAX_CLIP_SECONDS} s after timestamp_s)",
+    )
 
 
 class Script(BaseModel):
@@ -99,6 +107,15 @@ def validate(script: Script, *, duration_s: float, language: str) -> list[str]:
             problems.append(
                 f"point {i} timestamp {p.timestamp_s}s is outside the video (0-{int(duration_s)}s)"
             )
+        if p.end_s is not None:
+            clip = p.end_s - p.timestamp_s
+            if p.end_s > duration_s:
+                problems.append(f"point {i} end_s {p.end_s}s is past the end of the video")
+            elif not MIN_CLIP_SECONDS <= clip <= MAX_CLIP_SECONDS:
+                problems.append(
+                    f"point {i} clip is {clip}s; end_s must be "
+                    f"{MIN_CLIP_SECONDS}-{MAX_CLIP_SECONDS}s after timestamp_s"
+                )
     if len(_SENTENCE_END.findall(script.context.strip())) > 2:
         problems.append("context must be at most 2 sentences")
     if len(_SENTENCE_END.findall(script.takeaway.strip())) > 1:
@@ -123,7 +140,9 @@ Structure, exactly:
 2. points: 3 to 5 key points from the video, in the order they appear. Each has one
    claim (one sentence) and one supporting detail (an example, number, or reason from
    the video), plus timestamp_s: the second in the source where it is discussed,
-   taken from the [m:ss] markers.
+   taken from the [m:ss] markers, and end_s: where a clip that shows this point
+   should end, {MIN_CLIP_SECONDS}-{MAX_CLIP_SECONDS} seconds later (the viewer may watch
+   that stretch of the original), ending at a natural pause.
 3. takeaway: exactly 1 sentence: what to remember or do.
 Total read-aloud length: {MIN_SECONDS}-{MAX_SECONDS} seconds (about 150 words per minute).
 Only state what the video says; do not add outside facts. If the video is not
@@ -187,6 +206,27 @@ def write_script(
                 },
             ]
     raise ScriptError(f"{meta.video_id}: invalid script after retry: {'; '.join(problems)}")
+
+
+def clip_windows(script: Script, duration_s: float | None) -> list[tuple[int, int]]:
+    """(start, end) seconds of the source to play for each point in snippet mode.
+
+    Uses end_s when the script has it; otherwise DEFAULT_CLIP_SECONDS, cut short at the
+    next point (if that still leaves MIN_CLIP_SECONDS) and at the end of the video.
+    """
+    starts = [p.timestamp_s for p in script.points]
+    out = []
+    for i, p in enumerate(script.points):
+        end = p.end_s
+        if end is None:
+            end = p.timestamp_s + DEFAULT_CLIP_SECONDS
+            nxt = next((s for s in starts[i + 1 :] if s > p.timestamp_s), None)
+            if nxt is not None and nxt - p.timestamp_s >= MIN_CLIP_SECONDS:
+                end = min(end, nxt)
+        if duration_s:
+            end = min(end, int(duration_s))
+        out.append((p.timestamp_s, max(end, p.timestamp_s + 1)))
+    return out
 
 
 def script_path(cache_dir: Path, video_id: str) -> Path:
