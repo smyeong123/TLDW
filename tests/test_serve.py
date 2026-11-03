@@ -73,3 +73,31 @@ def test_binds_localhost_only(server):
 def test_empty_token_refused(tmp_path):
     with pytest.raises(ValueError):
         make_server(tmp_path / "s.db", "", 0)
+
+
+def _get(srv, path):
+    host, port = srv.server_address
+    try:
+        with urllib.request.urlopen(f"http://{host}:{port}{path}", timeout=5) as resp:
+            return resp.status, resp.headers["Content-Type"], resp.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers["Content-Type"], e.read().decode()
+
+
+def test_serves_snippet_pages(tmp_path):
+    pages = tmp_path / "snippets"
+    pages.mkdir()
+    (pages / "index.html").write_text("<h1>index</h1>")
+    (pages / "aaaaaaaaaaa.html").write_text("<h1>page</h1>")
+    (tmp_path / "secret.html").write_text("nope")
+    srv = make_server(tmp_path / "state.db", TOKEN, 0, pages_dir=pages)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert _get(srv, "/")[0::2] == (200, "<h1>index</h1>")
+        status, ctype, body = _get(srv, "/s/aaaaaaaaaaa?x=1")
+        assert (status, body) == (200, "<h1>page</h1>") and ctype.startswith("text/html")
+        assert _get(srv, "/s/bbbbbbbbbbb")[0] == 404
+        assert _get(srv, "/s/../secret")[0] == 404
+    finally:
+        srv.shutdown()
+        srv.server_close()
