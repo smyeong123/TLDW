@@ -1,9 +1,10 @@
-"""Typer CLI: auth, list, run, import, serve; retry, migrate-wl are added in later phases."""
+"""Typer CLI: auth, list, run, import, serve, preview, retry, migrate-wl, sample-slide."""
 
 from __future__ import annotations
 
 import json
 import logging
+import urllib.request
 from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -16,6 +17,7 @@ from rich.table import Table
 
 from tldw import filter as flt
 from tldw import intake, migrate, pipeline, render, youtube
+from tldw import snippets as sn
 from tldw.config import AppConfig, load_config
 from tldw.serve import make_server
 from tldw.state import Stage, State
@@ -129,7 +131,13 @@ class Until(StrEnum):
     filtered = "filtered"
     transcribed = "transcribed"
     scripted = "scripted"
-    delivered = "delivered"  # delivers videos already rendered (rendering awaits style approval)
+    rendered = "rendered"  # snippet pages; slide rendering awaits style approval
+    delivered = "delivered"
+
+
+class RunMode(StrEnum):
+    slides = "slides"
+    snippets = "snippets"
 
 
 _VERDICT_STYLE = {
@@ -148,8 +156,11 @@ def run(
         bool, typer.Option("--dry-run", help="Show filter decisions without changing anything")
     ] = False,
     until: Annotated[
-        Until, typer.Option(help="Stop after this stage (default: as far as built)")
-    ] = Until.scripted,
+        Until, typer.Option(help="Stop after this stage (delivered = also send)")
+    ] = Until.rendered,
+    mode: Annotated[
+        RunMode | None, typer.Option(help="slides or snippets (default: mode in config.yaml)")
+    ] = None,
     limit: Annotated[
         int | None, typer.Option(help="Max videos per step (default: max_shorts_per_run)")
     ] = None,
@@ -161,12 +172,13 @@ def run(
         typer.Option(formats=["%Y-%m-%d"], help="Only videos first seen on/after this date"),
     ] = None,
 ) -> None:
-    """Intake -> filter -> transcript -> script. Each step picks up where the last run left off."""
+    """Intake -> filter -> transcript -> script -> render -> deliver; resumes where it stopped."""
     cfg = _load(config)
     log_path = setup_logging(cfg.logs_dir)
     youtube.quota.reset()
     usage.reset()
-    log.info("run start: dry_run=%s until=%s", dry_run, until)
+    run_mode = mode.value if mode else cfg.config.mode
+    log.info("run start: dry_run=%s until=%s mode=%s", dry_run, until, run_mode)
     sel = pipeline.Selection(
         limit=limit or cfg.config.max_shorts_per_run,
         topic=topic,
@@ -211,6 +223,13 @@ def run(
                 err_console.print(f"[red]config error:[/red] {e}")
                 raise typer.Exit(2) from e
             steps += pipeline.script_step(state, cfg, client, sel=sel)
+        if until in (Until.rendered, Until.delivered):
+            steps += pipeline.render_step(state, cfg, sel=sel, mode=run_mode)
+            if run_mode == "slides" and state.list(Stage.SCRIPTED):
+                err_console.print(
+                    "[yellow]note:[/yellow] slide rendering isn't built yet (style approval "
+                    "pending); scripted videos wait. Use --mode snippets to watch them now."
+                )
         if until == Until.delivered:
             channels = pipeline.default_channels(cfg, yt)
             steps += pipeline.deliver_step(state, cfg, channels, sel=sel, yt=yt)
@@ -353,25 +372,57 @@ def serve(
     config: ConfigOpt = Path("config.yaml"),
     port: Annotated[int | None, typer.Option(help="Override serve_port")] = None,
 ) -> None:
-    """Receive Watch Later snapshots from the browser extension (127.0.0.1 only)."""
+    """Receive extension snapshots and serve snippet pages (127.0.0.1 only)."""
     cfg = _load(config)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     setup_logging(cfg.logs_dir)
     try:
         srv = make_server(
-            cfg.state_db, cfg.secrets.tldw_extension_token or "", port or cfg.config.serve_port
+            cfg.state_db,
+            cfg.secrets.tldw_extension_token or "",
+            port or cfg.config.serve_port,
+            pages_dir=sn.pages_dir(cfg.out_dir),
         )
     except (ValueError, OSError) as e:
         err_console.print(f"[red]serve error:[/red] {e}")
         raise typer.Exit(2) from e
     host, bound = srv.server_address[:2]
-    console.print(f"Listening on http://{host}:{bound} — Ctrl+C to stop")
+    sn.write_index(cfg.out_dir)
+    console.print(f"Listening on http://{host}:{bound} — summaries at http://{host}:{bound}/")
+    console.print("Ctrl+C to stop")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         srv.server_close()
+
+
+@app.command()
+def preview(
+    video_id: Annotated[str, typer.Argument(help="Video id of a rendered summary")],
+    config: ConfigOpt = Path("config.yaml"),
+) -> None:
+    """Open a rendered summary: the mp4 (slides) or the snippet page via `tldw serve`."""
+    cfg = _load(config)
+    kind = pipeline.rendered_kind(cfg, video_id)
+    if kind is None:
+        err_console.print(f"[red]nothing rendered for {video_id}[/red] (run `tldw run` first)")
+        raise typer.Exit(2)
+    if kind == "slides":
+        typer.launch(str(pipeline.video_path(cfg, video_id)))
+        return
+    base = f"http://127.0.0.1:{cfg.config.serve_port}"
+    try:
+        with urllib.request.urlopen(f"{base}/health", timeout=2):
+            pass
+    except OSError as e:
+        err_console.print(
+            "[red]`tldw serve` isn't running.[/red] Start it in another terminal; YouTube's "
+            "player won't play from a local file."
+        )
+        raise typer.Exit(2) from e
+    typer.launch(f"{base}/s/{video_id}")
 
 
 @app.command("sample-slide")

@@ -3,6 +3,8 @@
 Listens on 127.0.0.1 only. Every POST must carry the shared token in `X-TLDW-Token`.
   GET  /health    -> {"ok": true}
   POST /snapshot  -> {"new": n, "updated": m}   (body: snapshot JSON, see intake.py)
+  GET  /          -> snippet-mode index page (out/snippets/index.html)
+  GET  /s/<id>    -> one snippet page (YouTube's embed player won't play on file:// pages)
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -19,9 +22,12 @@ from tldw.state import State
 log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 5 * 1024 * 1024  # a few thousand Watch Later items is well under 1 MB
+_PAGE = re.compile(r"^/s/([A-Za-z0-9_-]{11})/?$")
 
 
-def make_server(state_db: Path, token: str, port: int) -> ThreadingHTTPServer:
+def make_server(
+    state_db: Path, token: str, port: int, pages_dir: Path | None = None
+) -> ThreadingHTTPServer:
     if not token:
         raise ValueError("TLDW_EXTENSION_TOKEN is empty; set it in .env first")
 
@@ -52,9 +58,27 @@ def make_server(state_db: Path, token: str, port: int) -> ThreadingHTTPServer:
             self._cors()
             self.end_headers()
 
+        def _send_page(self, path: Path) -> None:
+            try:
+                body = path.read_bytes()
+            except OSError:
+                self._send(404, {"error": "no such summary"})
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def do_GET(self) -> None:  # noqa: N802
-            if self.path == "/health":
+            path = self.path.split("?", 1)[0]
+            m = _PAGE.match(path)
+            if path == "/health":
                 self._send(200, {"ok": True})
+            elif pages_dir is not None and path in ("/", "/index.html"):
+                self._send_page(pages_dir / "index.html")
+            elif pages_dir is not None and m:
+                self._send_page(pages_dir / f"{m.group(1)}.html")
             else:
                 self._send(404, {"error": "not found"})
 

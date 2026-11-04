@@ -138,3 +138,32 @@ def test_short_title():
         '[Systems design] CPU caches in five minutes — TLDW of "Orig"'
     )
     assert sc.short_title(s, None, "Orig").startswith("CPU caches")
+
+
+# --- snippet clip windows -------------------------------------------------------------
+
+
+def _with_ends(s, ends):
+    s.points = [p.model_copy(update={"end_s": e}) for p, e in zip(s.points, ends, strict=True)]
+    return s
+
+
+def test_validate_clip_ends():
+    ok = _with_ends(make_script(), [80, 150, 200, 260])
+    assert sc.validate(ok, duration_s=600, language="en") == []
+    short = _with_ends(make_script(), [65, 150, 200, 260])
+    assert any("clip is 5s" in p for p in sc.validate(short, duration_s=600, language="en"))
+    past = _with_ends(make_script(), [80, 150, 200, 260])
+    assert any("past the end" in p for p in sc.validate(past, duration_s=250, language="en"))
+
+
+def test_clip_windows_uses_end_s():
+    s = _with_ends(make_script(), [80, 150, 200, 260])
+    assert sc.clip_windows(s, 600) == [(60, 80), (120, 150), (180, 200), (240, 260)]
+
+
+def test_clip_windows_fallback_without_end_s():
+    s = make_script(ts=20)  # points at 20, 40, 60, 80; no end_s (older scripts)
+    assert sc.clip_windows(s, 95) == [(20, 40), (40, 60), (60, 80), (80, 95)]
+    close = make_script(ts=5)  # next point only 5 s later: keep the default 30 s
+    assert sc.clip_windows(close, 600)[0] == (5, 35)

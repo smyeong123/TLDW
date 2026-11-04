@@ -216,3 +216,69 @@ def test_selection_filters_topic_since_and_limit(state):
     assert [r.id for r in pipeline.Selection(10).pick(recs)] == ["a", "b", "c", "d"]
     future = datetime(2100, 1, 1, tzinfo=UTC)
     assert pipeline.Selection(10, since=future).pick(recs) == []
+
+
+# --- snippet mode -----------------------------------------------------------------------
+
+
+def _scripted(state, cfg, vid):
+    state.upsert_new(vid, f"Orig {vid}", channel="Chan", duration_s=600)
+    for st in (Stage.FILTERED_IN, Stage.TRANSCRIBED, Stage.SCRIPTED):
+        state.set_stage(vid, st, topic="ML" if st == Stage.FILTERED_IN else None)
+    script = sc.Script(
+        title="Short",
+        language="en",
+        context="c.",
+        points=[sc.Point(claim="a.", detail="b", timestamp_s=t) for t in (10, 100, 200)],
+        takeaway="t.",
+    )
+    sc.save(script, sc.script_path(cfg.cache_dir, vid))
+
+
+def test_render_step_snippets_writes_page(tmp_path, state):
+    cfg = _cfg(tmp_path)
+    _scripted(state, cfg, "aaaaaaaaaaa")
+    [r] = pipeline.render_step(state, cfg, sel=pipeline.Selection(5), mode="snippets")
+    assert r.ok and "3 clips" in r.message
+    assert state.get("aaaaaaaaaaa").stage == Stage.RENDERED
+    assert pipeline.rendered_kind(cfg, "aaaaaaaaaaa") == "snippets"
+
+
+def test_render_step_slides_not_built_yet(tmp_path, state):
+    cfg = _cfg(tmp_path)
+    _scripted(state, cfg, "aaaaaaaaaaa")
+    assert pipeline.render_step(state, cfg, sel=pipeline.Selection(5), mode="slides") == []
+    assert state.get("aaaaaaaaaaa").stage == Stage.SCRIPTED
+
+
+def test_deliver_snippets_skips_youtube_and_sends_links(tmp_path, state):
+    cfg = _cfg(tmp_path, delivery=["youtube", "telegram"])
+    _scripted(state, cfg, "aaaaaaaaaaa")
+    pipeline.render_step(state, cfg, sel=pipeline.Selection(5), mode="snippets")
+    texts = []
+
+    def no_upload(*a):
+        raise AssertionError("snippets must not be uploaded")
+
+    ch = pipeline.Channels(youtube=no_upload, telegram_text=lambda t: texts.append(t) or "5")
+    [r] = pipeline.deliver_step(state, cfg, ch, sel=pipeline.Selection(5))
+    assert r.ok and "delivered to telegram" in r.message and "skipped youtube" in r.message
+    assert "https://youtu.be/aaaaaaaaaaa?t=100" in texts[0]
+    assert state.deliveries("aaaaaaaaaaa") == {"telegram": "5"}
+    assert state.get("aaaaaaaaaaa").stage == Stage.DELIVERED
+
+
+def test_deliver_snippets_youtube_only_is_page_only(tmp_path, state):
+    cfg = _cfg(tmp_path, delivery=["youtube"])
+    _scripted(state, cfg, "aaaaaaaaaaa")
+    pipeline.render_step(state, cfg, sel=pipeline.Selection(5), mode="snippets")
+    [r] = pipeline.deliver_step(state, cfg, pipeline.Channels(), sel=pipeline.Selection(5))
+    assert r.ok and r.message.startswith("snippet page only")
+
+
+def test_deliver_without_render_output_fails(tmp_path, state):
+    cfg = _cfg(tmp_path, delivery=["telegram"])
+    _scripted(state, cfg, "aaaaaaaaaaa")
+    state.set_stage("aaaaaaaaaaa", Stage.RENDERED)
+    [r] = pipeline.deliver_step(state, cfg, pipeline.Channels(), sel=pipeline.Selection(5))
+    assert not r.ok and r.message == "nothing rendered"
